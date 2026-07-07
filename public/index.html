@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>MediVerse BCS Question Bank</title>
+<link rel="stylesheet" href="/styles.css"/>
+</head>
+<body>
+<header class="top">
+  <div class="logo"><span class="mark">🩺</span><span><b>MediVerse</b><small>BCS Question Bank</small></span></div>
+  <div class="spacer"></div>
+  <span class="uinfo" id="uinfo"></span>
+  <button class="btn ghost sm" id="fullAccessBtn">Get full access</button>
+  <a class="btn ghost sm" id="loginLink" href="/login">Member log in</a>
+  <button class="btn ghost sm" id="logoutBtn" style="display:none">Log out</button>
+</header>
+
+<!-- FREE / REGISTERED feed -->
+<div class="container" id="freeView" style="display:none">
+  <div class="hero">
+    <div class="t">
+      <h1 id="heroTitle">Free practice</h1>
+      <p id="heroSub">Try questions from across every subject — no account needed.</p>
+      <div class="progress"><span id="bar" style="width:0%"></span></div>
+    </div>
+    <span class="badge free" id="tierBadge">Free</span>
+  </div>
+  <div id="freeList"></div>
+  <div class="pager" id="freePager"></div>
+</div>
+
+<!-- MEMBER full browser -->
+<div class="wrap" id="memberView" style="display:none">
+  <aside><div class="side"><h3>Subjects</h3><div id="tree"></div></div></aside>
+  <main>
+    <div class="toolbar">
+      <div class="crumb" id="crumb">All questions</div>
+      <div style="flex:1"></div>
+      <button class="btn gray sm" id="bookmarksBtn">★ Bookmarks</button>
+      <select id="diff"><option value="">All levels</option><option>Easy</option><option>Moderate</option><option>Hard</option></select>
+      <input class="search" id="search" placeholder="Search…"/>
+    </div>
+    <div id="memberList"></div>
+    <div class="pager" id="memberPager"></div>
+  </main>
+</div>
+
+<!-- SIGN-UP modal -->
+<div class="modal-bg" id="signupModal">
+  <div class="modal">
+    <div class="icon-big">✍️</div>
+    <h3>Unlock 100 more — free</h3>
+    <p class="lead">You've finished your first 100 questions. Register below to unlock the next 100 free questions.</p>
+    <div id="suMsg"></div>
+    <div class="field"><label>Full name <span class="req">*</span></label><input id="su_name"/></div>
+    <div class="field"><label>Medical college <span class="req">*</span></label><input id="su_medical"/></div>
+    <div class="field"><label>Session (e.g. 2019–20) <span class="req">*</span></label><input id="su_session"/></div>
+    <div class="field"><label>WhatsApp number <span class="req">*</span></label><input id="su_whatsapp" placeholder="+8801XXXXXXXXX"/></div>
+    <button class="btn block" id="su_go">Register &amp; continue</button>
+    <p style="font-size:12px;color:var(--muted);text-align:center;margin:12px 0 0">All fields are required.</p>
+  </div>
+</div>
+
+<!-- PAYMENT modal -->
+<div class="modal-bg" id="payModal">
+  <div class="modal">
+    <div class="icon-big">🎓</div>
+    <h3>Get full access to all questions</h3>
+    <p class="lead" id="payLead">You've completed your free questions. To unlock the entire MediVerse BCS Question Bank (2,000+ questions across every subject), register &amp; pay using the link below.</p>
+    <ol style="font-size:14px;color:var(--ink);padding-left:20px;margin:0 0 16px">
+      <li>Open the registration &amp; payment form.</li>
+      <li>Complete payment and submit your details.</li>
+      <li>We'll send you a <b>username &amp; password</b> (works on <b>one device</b>) via WhatsApp.</li>
+      <li>Come back and <b>log in</b> for unlimited access.</li>
+    </ol>
+    <a class="btn block" id="payLink" href="#" target="_blank" rel="noopener">Open registration &amp; payment form →</a>
+    <div style="text-align:center;margin-top:12px"><a href="/login" style="font-size:14px">Already have a username? Log in</a></div>
+  </div>
+</div>
+
+<!-- flag modal -->
+<div class="modal-bg" id="flagModal"><div class="modal">
+  <h3>Report a problem</h3>
+  <p class="lead">What's wrong with this question? (wrong answer, typo, unclear…)</p>
+  <textarea id="flagReason" rows="4" style="width:100%"></textarea>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+    <button class="btn gray" onclick="closeFlag()">Cancel</button>
+    <button class="btn" onclick="submitFlag()">Submit</button>
+  </div>
+</div></div>
+
+<script src="/common.js"></script>
+<script>
+let CFG={}, USER=null, flagId=null;
+let free={page:1,tier:"guest",quota:100,total:0};
+let mem={subject:"",heading:"",search:"",difficulty:"",page:1,bookmarked:false};
+
+async function init(){
+  CFG=await api("/api/config");
+  document.getElementById("payLink").href=CFG.paymentUrl;
+  document.getElementById("fullAccessBtn").onclick=()=>openPay();
+  document.getElementById("logoutBtn").onclick=async()=>{await api("/api/logout",{method:"POST"});location.reload();};
+  document.getElementById("su_go").onclick=doSignup;
+  USER=await me();
+  if(USER){ showMember(); } else { showFree(); }
+}
+/* ---------------- FREE / REGISTERED ---------------- */
+function showFree(){
+  document.getElementById("freeView").style.display="block";
+  document.getElementById("memberView").style.display="none";
+  document.getElementById("logoutBtn").style.display="none";
+  document.getElementById("loginLink").style.display="inline-block";
+  loadFeed();
+}
+async function loadFeed(){
+  const d=await api("/api/feed?page="+free.page);
+  free.tier=d.tier; free.quota=d.quota; free.total=d.total;
+  const badge=document.getElementById("tierBadge");
+  if(d.tier==="registered"){badge.textContent="Registered · "+d.quota+" free";badge.className="badge";}
+  else{badge.textContent="Free · "+d.quota+" questions";badge.className="badge free";}
+  document.getElementById("heroTitle").textContent = d.tier==="registered"?"Your free questions":"Free practice";
+  document.getElementById("heroSub").textContent = "Practice questions from across every subject. "+
+    (d.tier==="guest"?"Register to unlock more, then upgrade for the full bank.":"Upgrade for full access to all questions.");
+  const seen=Math.min(d.quota,(d.page-1)*d.pageSize+d.questions.length);
+  document.getElementById("bar").style.width=Math.round(seen/d.quota*100)+"%";
+  const pages=Math.ceil(d.total/d.pageSize)||1;
+  const startNo=(d.page-1)*d.pageSize;
+  let html=d.questions.map((q,i)=>qCard(q,startNo+i+1,false)).join("");
+  // wall at the very end
+  if(d.page>=pages){
+    if(d.tier==="guest") html+=wallCard("signup");
+    else html+=wallCard("pay");
+  }
+  document.getElementById("freeList").innerHTML=html||`<div class="qcard empty">No questions available.</div>`;
+  // pager
+  const pg=document.getElementById("freePager");
+  pg.innerHTML=`<button class="btn gray sm" ${d.page<=1?'disabled':''} onclick="freeGoto(${d.page-1})">‹ Prev</button>
+    <span class="pinfo">Page ${d.page} of ${pages}</span>
+    <button class="btn gray sm" ${d.page>=pages?'disabled':''} onclick="freeGoto(${d.page+1})">Next ›</button>`;
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function wallCard(type){
+  if(type==="signup") return `<div class="qcard" style="text-align:center;border:2px dashed var(--teal)">
+    <div class="icon-big" style="margin:0 auto 8px">✍️</div>
+    <h3 style="margin:0 0 6px;color:var(--navy)">You've completed your first 100 questions!</h3>
+    <p style="color:var(--muted);margin:0 0 14px">Register (free) to unlock <b>100 more</b> questions.</p>
+    <button class="btn" onclick="openSignup()">Register &amp; unlock 100 more →</button></div>`;
+  return `<div class="qcard" style="text-align:center;border:2px dashed var(--amber)">
+    <div class="icon-big" style="margin:0 auto 8px;background:var(--amberbg);color:var(--amber)">🎓</div>
+    <h3 style="margin:0 0 6px;color:var(--navy)">You've completed all your free questions</h3>
+    <p style="color:var(--muted);margin:0 0 14px">Unlock the full MediVerse BCS Question Bank — 2,000+ questions across every subject.</p>
+    <button class="btn" onclick="openPay()">Get full access →</button></div>`;
+}
+function freeGoto(p){free.page=p;loadFeed();}
+
+/* ---------------- MEMBER (paid) ---------------- */
+function showMember(){
+  document.getElementById("freeView").style.display="none";
+  document.getElementById("memberView").style.display="flex";
+  document.getElementById("uinfo").textContent=(USER.name||USER.username)+(USER.role==="admin"?" (admin)":"");
+  document.getElementById("loginLink").style.display="none";
+  document.getElementById("fullAccessBtn").style.display="none";
+  document.getElementById("logoutBtn").style.display="inline-block";
+  document.getElementById("search").addEventListener("input",debounce(()=>{mem.search=search.value.trim();mem.page=1;loadMember();},350));
+  document.getElementById("diff").addEventListener("change",e=>{mem.difficulty=e.target.value;mem.page=1;loadMember();});
+  document.getElementById("bookmarksBtn").addEventListener("click",()=>{mem.bookmarked=!mem.bookmarked;mem.subject="";mem.heading="";mem.page=1;clearActive();setCrumb();loadMember();});
+  loadTree(); loadMember();
+}
+async function loadTree(){
+  const {total,subjects}=await api("/api/subjects");
+  document.getElementById("tree").innerHTML=
+    `<div class="subj"><button onclick="pickAll()"><span>All subjects</span><span class="cnt">${total}</span></button></div>`+
+    subjects.map((s,i)=>`<div class="subj" id="subj${i}">
+      <button onclick="toggleSubj(${i},'${enc(s.subject)}')"><span>${esc(s.subject)}</span><span class="cnt">${s.count}</span></button>
+      <div class="headings">${s.headings.map(h=>`<button onclick="pickHeading('${enc(s.subject)}','${enc(h.heading)}',event)"><span>${esc(h.heading)}</span><span class="cnt">${h.c}</span></button>`).join("")}</div></div>`).join("");
+}
+function enc(s){return encodeURIComponent(s);}
+function toggleSubj(i,s){const n=document.getElementById("subj"+i);n.classList.toggle("open");mem.subject=decodeURIComponent(s);mem.heading="";mem.bookmarked=false;mem.page=1;setCrumb();loadMember();}
+function pickAll(){mem.subject="";mem.heading="";mem.bookmarked=false;mem.page=1;clearActive();setCrumb();loadMember();}
+function pickHeading(s,h,e){e.stopPropagation();mem.subject=decodeURIComponent(s);mem.heading=decodeURIComponent(h);mem.bookmarked=false;mem.page=1;clearActive();e.currentTarget.classList.add("active");setCrumb();loadMember();}
+function clearActive(){document.querySelectorAll(".headings button.active").forEach(b=>b.classList.remove("active"));}
+function setCrumb(){document.getElementById("crumb").innerHTML=mem.bookmarked?"★ My bookmarks":(mem.subject?esc(mem.subject)+(mem.heading?` <small>› ${esc(mem.heading)}</small>`:""):"All questions");}
+async function loadMember(){
+  const p=new URLSearchParams({page:mem.page,pageSize:10});
+  if(mem.subject)p.set("subject",mem.subject); if(mem.heading)p.set("heading",mem.heading);
+  if(mem.search)p.set("search",mem.search); if(mem.difficulty)p.set("difficulty",mem.difficulty);
+  if(mem.bookmarked)p.set("bookmarked","1");
+  const d=await api("/api/questions?"+p.toString());
+  const startNo=(d.page-1)*d.pageSize;
+  document.getElementById("memberList").innerHTML=d.questions.length?d.questions.map((q,i)=>qCard(q,startNo+i+1,true)).join(""):`<div class="qcard empty">No questions found.</div>`;
+  const pages=Math.ceil(d.total/d.pageSize)||1;
+  document.getElementById("memberPager").innerHTML=`<button class="btn gray sm" ${d.page<=1?'disabled':''} onclick="memGoto(${d.page-1})">‹ Prev</button>
+    <span class="pinfo">Page ${d.page} of ${pages} · ${d.total} questions</span>
+    <button class="btn gray sm" ${d.page>=pages?'disabled':''} onclick="memGoto(${d.page+1})">Next ›</button>`;
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+function memGoto(p){mem.page=p;loadMember();}
+
+/* ---------------- shared question card ---------------- */
+function qCard(q,no,member){
+  const labs=["A","B","C","D"];
+  const bm = member?`<button class="iconbtn bm ${q.bookmarked?'on':''}" title="Bookmark" onclick="toggleBm(${q.id},this)">${q.bookmarked?'★':'☆'}</button>`:"";
+  return `<div class="qcard" id="q${q.id}">
+    <div class="qhead"><div class="qnum">Q${no}.</div>
+      <div class="qtags"><span class="tag subject">${esc(q.subject)}</span>${bm}
+        <button class="iconbtn" title="Report" onclick="openFlag(${q.id})">⚑</button></div></div>
+    <div class="stem">${md(q.stem)}</div>
+    <div class="opts" id="opts${q.id}">
+      ${q.options.map((o,idx)=>`<div class="opt" onclick="answer(${q.id},${idx},${q.answer},${member})"><span class="lab">${labs[idx]}</span><span>${md(o)}</span></div>`).join("")}
+    </div>
+    <div class="expl" id="expl${q.id}"><div class="ans">Answer: ${labs[q.answer]}</div><div><strong>Explanation:</strong> ${md(q.explanation)}</div></div>
+  </div>`;
+}
+function answer(qid,chosen,correct,member){
+  const opts=document.querySelectorAll("#opts"+qid+" .opt");
+  if(opts[0].classList.contains("disabled"))return;
+  opts.forEach((o,idx)=>{o.classList.add("disabled");o.onclick=null;
+    if(idx===correct)o.classList.add("correct"); if(idx===chosen&&chosen!==correct)o.classList.add("wrong");});
+  document.getElementById("expl"+qid).classList.add("show");
+  if(member)api("/api/attempt",{method:"POST",body:JSON.stringify({question_id:qid,chosen})}).catch(()=>{});
+}
+async function toggleBm(qid,btn){
+  const on=!btn.classList.contains("on");
+  try{await api("/api/bookmarks",{method:"POST",body:JSON.stringify({question_id:qid,on})});btn.classList.toggle("on",on);btn.textContent=on?'★':'☆';}catch(e){alert(e.message);}
+}
+function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
+
+/* ---------------- modals ---------------- */
+function openSignup(){document.getElementById("suMsg").innerHTML="";document.getElementById("signupModal").classList.add("show");}
+function openPay(){document.getElementById("payModal").classList.add("show");}
+document.addEventListener("click",e=>{ if(e.target.classList.contains("modal-bg")) e.target.classList.remove("show"); });
+async function doSignup(){
+  const m=document.getElementById("suMsg");m.innerHTML="";
+  const body={name:su_name.value.trim(),medical:su_medical.value.trim(),session:su_session.value.trim(),whatsapp:su_whatsapp.value.trim()};
+  try{
+    await api("/api/signup",{method:"POST",body:JSON.stringify(body)});
+    document.getElementById("signupModal").classList.remove("show");
+    free.page=Math.floor(free.quota/10)+1; // jump to the newly unlocked questions
+    await loadFeed();
+    alert("Thanks! 100 more questions unlocked.");
+  }catch(e){m.innerHTML=`<div class="msg err">${esc(e.message)}</div>`;}
+}
+function openFlag(qid){flagId=qid;document.getElementById("flagReason").value="";document.getElementById("flagModal").classList.add("show");}
+function closeFlag(){document.getElementById("flagModal").classList.remove("show");}
+async function submitFlag(){try{await api("/api/flag",{method:"POST",body:JSON.stringify({question_id:flagId,reason:document.getElementById("flagReason").value})});closeFlag();alert("Thanks — report submitted.");}catch(e){alert(e.message);}}
+init();
+</script>
+</body>
+</html>

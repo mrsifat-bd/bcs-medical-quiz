@@ -1,0 +1,20 @@
+{
+  "name": "bcs-medical-quiz",
+  "version": "1.0.0",
+  "description": "BCS Medical Science MCQ practice website (2100+ questions) with admin panel, single-device accounts and doc upload.",
+  "main": "server.js",
+  "engines": { "node": ">=22.5.0" },
+  "scripts": {
+    "start": "node --no-warnings server.js",
+    "seed": "node --no-warnings src/db.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2",
+    "mammoth": "^1.8.0",
+    "multer": "^1.4.5-lts.1",
+    "node-html-parser": "^6.1.13",
+    "xlsx": "^0.18.5"
+  }
+}

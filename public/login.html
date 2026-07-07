@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Member log in — MediVerse BCS Question Bank</title><link rel="stylesheet" href="/styles.css"/></head>
+<body>
+<header class="top">
+  <div class="logo"><span class="mark">🩺</span><span><b>MediVerse</b><small>BCS Question Bank</small></span></div>
+  <div class="spacer"></div><a class="btn ghost sm" href="/">← Back</a>
+</header>
+<div class="authcard">
+  <h2>Member log in</h2>
+  <p style="color:var(--muted);font-size:14px;margin-top:0">Full access is for registered &amp; paid members. Your username works on <b>one device only</b>.</p>
+  <div id="msg"></div>
+  <div class="field"><label>Username</label><input id="u" autocomplete="username"/></div>
+  <div class="field"><label>Password</label><input id="p" type="password" autocomplete="current-password"/></div>
+  <button class="btn block" id="go">Log in</button>
+  <p style="text-align:center;margin-top:16px;font-size:14px">Don't have access yet? <a href="/">Practice free &amp; get full access →</a></p>
+</div>
+<script src="/common.js"></script>
+<script>
+document.getElementById("go").addEventListener("click",login);
+document.getElementById("p").addEventListener("keydown",e=>{if(e.key==="Enter")login();});
+async function login(){
+  const msg=document.getElementById("msg");msg.innerHTML="";
+  try{const u=await api("/api/login",{method:"POST",body:JSON.stringify({username:document.getElementById("u").value.trim(),password:document.getElementById("p").value,device_id:deviceId()})});
+    location.href=u.role==="admin"?"/admin":"/";
+  }catch(e){msg.innerHTML=`<div class="msg err">${esc(e.message)}</div>`;}
+}
+</script></body></html>

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Admin — MediVerse BCS Question Bank</title><link rel="stylesheet" href="/styles.css"/></head>
+<body>
+<header class="top">
+  <div class="logo"><span class="mark">🩺</span><span><b>MediVerse</b><small>Admin panel</small></span></div>
+  <div class="spacer"></div><span class="uinfo" id="who"></span>
+  <a class="btn ghost sm" href="/">View site</a><button class="btn ghost sm" id="logout">Log out</button>
+</header>
+
+<div id="gate" class="authcard" style="display:none">
+  <h2>Admin login</h2><div id="lmsg"></div>
+  <div class="field"><label>Username</label><input id="lu"/></div>
+  <div class="field"><label>Password</label><input id="lp" type="password"/></div>
+  <button class="btn block" id="lgo">Log in</button>
+</div>
+
+<div id="appwrap" style="max-width:1080px;margin:0 auto;padding:20px 18px;display:none">
+  <div id="stats" style="margin-bottom:16px"></div>
+  <div class="tabs">
+    <button class="active" data-tab="leads">Sign-ups (leads)</button>
+    <button data-tab="users">Members</button>
+    <button data-tab="flags">Reported</button>
+    <button data-tab="upload">Add questions</button>
+    <button data-tab="settings">Settings</button>
+  </div>
+
+  <div id="tab-leads" class="tabc">
+    <div class="panel" style="padding:6px 16px 16px">
+      <p style="color:var(--muted);font-size:14px">People who registered (Name / Medical college / Session / WhatsApp) after their free questions. After they pay, click <b>Create login</b> to give them a single-device member account, then send the credentials via WhatsApp.</p>
+      <table id="leadTable"></table>
+    </div>
+  </div>
+
+  <div id="tab-users" class="tabc" style="display:none">
+    <div class="panel" style="padding:16px;margin-bottom:16px">
+      <h3 style="margin-top:0;color:var(--navy)">Add a member manually</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <input id="nu" placeholder="Username"/><input id="nn" placeholder="Full name (optional)"/>
+        <input id="np" placeholder="Password" type="text"/><button class="btn" id="addUser">Add member</button>
+      </div><div id="umsg"></div>
+    </div>
+    <div class="panel" style="padding:6px 16px 16px"><table id="userTable"></table></div>
+  </div>
+
+  <div id="tab-flags" class="tabc" style="display:none">
+    <div class="panel" style="padding:6px 16px 16px"><table id="flagTable"></table></div>
+  </div>
+
+  <div id="tab-upload" class="tabc" style="display:none">
+    <div class="panel" style="padding:16px">
+      <h3 style="margin-top:0;color:var(--navy)">Bulk-add questions from a file</h3>
+      <p style="font-size:14px;color:var(--muted)">Upload <b>.xlsx</b>, <b>.csv</b> or <b>.docx</b> with columns:
+        <code>Subject · Heading · Question · Option A–D · Answer (A–D) · Difficulty · Style · Explanation</code>.
+        Use <b>**double asterisks**</b> for bold in explanations.</p>
+      <p><a class="btn gray sm" href="/api/admin/template">⬇ Download .xlsx template</a></p>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:8px">
+        <input type="file" id="file" accept=".xlsx,.xls,.csv,.docx"/><button class="btn" id="uploadBtn">Upload &amp; add</button>
+      </div><div id="upmsg"></div>
+    </div>
+  </div>
+
+  <div id="tab-settings" class="tabc" style="display:none">
+    <div class="panel" style="padding:16px;max-width:430px">
+      <h3 style="margin-top:0;color:var(--navy)">Change admin password</h3>
+      <div class="field"><label>New password</label><input id="ap" type="password"/></div>
+      <button class="btn" id="chpw">Update password</button><div id="pwmsg"></div>
+    </div>
+  </div>
+</div>
+<script src="/common.js"></script>
+<script src="/admin.js"></script>
+</body></html>
