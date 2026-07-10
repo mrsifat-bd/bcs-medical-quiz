@@ -1,0 +1,8 @@
+node_modules/
+uploads/
+data/app.db
+data/app.db-*
+.env
+.env.local
+.vercel
+.DS_Store
