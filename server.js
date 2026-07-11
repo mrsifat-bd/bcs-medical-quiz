@@ -117,12 +117,20 @@ app.get("/api/feed", async (req, res, next) => {
     const quota = quotaFor(g.tier);
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const pageSize = 10;
-    const totalRow = await db.get("SELECT COUNT(*)::int c FROM guest_playlist WHERE gid=$1 AND ord<=$2", [g.gid, quota]);
+    const subject = String(req.query.subject || "").trim();
+    const heading = String(req.query.heading || "").trim();
+    const params = [g.gid, quota];
+    let filterSql = "";
+    if (subject) { params.push(subject); filterSql += ` AND q.subject=$${params.length}`; }
+    if (heading) { params.push(heading); filterSql += ` AND q.heading=$${params.length}`; }
+    const totalRow = await db.get(
+      `SELECT COUNT(*)::int c FROM guest_playlist p JOIN questions q ON q.id=p.question_id
+       WHERE p.gid=$1 AND p.ord<=$2${filterSql}`, params);
     const total = Math.min(quota, totalRow.c);
     const rows = await db.all(
       `SELECT q.* FROM guest_playlist p JOIN questions q ON q.id=p.question_id
-       WHERE p.gid=$1 AND p.ord<=$2 ORDER BY p.ord LIMIT $3 OFFSET $4`,
-      [g.gid, quota, pageSize, (page - 1) * pageSize]);
+       WHERE p.gid=$1 AND p.ord<=$2${filterSql} ORDER BY p.ord LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, pageSize, (page - 1) * pageSize]);
     const questions = rows.map((q) => ({
       id: q.id, subject: q.subject, heading: q.heading, difficulty: q.difficulty, style: q.style,
       stem: q.stem, options: [q.opta, q.optb, q.optc, q.optd], answer: q.answer, explanation: q.explanation, bookmarked: false,
@@ -139,20 +147,24 @@ app.post("/api/signup", async (req, res, next) => {
     const name = String(req.body.name || "").trim();
     const medical = String(req.body.medical || "").trim();
     const session = String(req.body.session || "").trim();
+    const email = String(req.body.email || "").trim();
     const whatsapp = String(req.body.whatsapp || "").trim();
-    if (!name || !medical || !session || !whatsapp)
-      return res.status(400).json({ error: "All fields (Name, Medical College, Session, WhatsApp number) are required." });
+    const bought = String(req.body.bought_book || "").trim();
+    if (!name || !medical || !session || !email || !whatsapp || !bought)
+      return res.status(400).json({ error: "All fields are required (Name, Medical College, Session, Gmail, WhatsApp, and the book question)." });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      return res.status(400).json({ error: "Please enter a valid email address." });
     if (!/^[+0-9][0-9\s-]{7,}$/.test(whatsapp))
       return res.status(400).json({ error: "Please enter a valid WhatsApp number." });
-    await db.run("UPDATE guests SET tier='registered', name=$1, medical=$2, session=$3, whatsapp=$4, signup_at=now() WHERE gid=$5",
-      [name, medical, session, whatsapp, g.gid]);
+    await db.run("UPDATE guests SET tier='registered', name=$1, medical=$2, session=$3, whatsapp=$4, email=$5, bought_book=$6, signup_at=now() WHERE gid=$7",
+      [name, medical, session, whatsapp, email, bought, g.gid]);
     await buildPlaylist(g.gid, REG_QUOTA - FREE_QUOTA, FREE_QUOTA + 1); // add the next 100
     res.json({ ok: true, tier: "registered", quota: REG_QUOTA });
   } catch (e) { next(e); }
 });
 
-// ---------- full access (paid members only) ----------
-app.get("/api/subjects", requireAuth, async (req, res, next) => {
+// ---------- subject/topic tree (public: powers the browse sidebar for everyone) ----------
+app.get("/api/subjects", async (req, res, next) => {
   try {
     const subs = await db.all("SELECT subject, COUNT(*)::int c FROM questions WHERE active=1 GROUP BY subject ORDER BY MIN(id)");
     const tree = [];
@@ -326,7 +338,7 @@ app.post("/api/admin/change-password", requireAdmin, async (req, res, next) => {
 // leads (sign-ups)
 app.get("/api/admin/leads", requireAdmin, async (req, res, next) => {
   try {
-    const leads = await db.all(`SELECT gid,name,medical,session,whatsapp,signup_at,converted_user_id,
+    const leads = await db.all(`SELECT gid,name,medical,session,email,whatsapp,bought_book,signup_at,converted_user_id,
        (SELECT username FROM users u WHERE u.id=guests.converted_user_id) AS username
        FROM guests WHERE tier='registered' ORDER BY signup_at DESC LIMIT 1000`);
     res.json({ leads });
@@ -349,18 +361,18 @@ app.post("/api/admin/leads/:gid/convert", requireAdmin, async (req, res, next) =
 // download sign-ups (leads) as an Excel file
 app.get("/api/admin/leads.xlsx", requireAdmin, async (req, res, next) => {
   try {
-    const leads = await db.all(`SELECT name,medical,session,whatsapp,signup_at,converted_user_id,
+    const leads = await db.all(`SELECT name,medical,session,email,whatsapp,bought_book,signup_at,converted_user_id,
        (SELECT username FROM users u WHERE u.id=guests.converted_user_id) AS username
        FROM guests WHERE tier='registered' ORDER BY signup_at DESC LIMIT 5000`);
-    const header = ["Name", "Medical college", "Session", "WhatsApp", "Signed up", "Status", "Member username"];
+    const header = ["Name", "Medical college", "Session", "Gmail", "WhatsApp", "Bought Password BCS & Q-Verse book", "Signed up", "Status", "Member username"];
     const rows = leads.map((l) => [
-      l.name || "", l.medical || "", l.session || "", l.whatsapp || "",
+      l.name || "", l.medical || "", l.session || "", l.email || "", l.whatsapp || "", l.bought_book || "",
       l.signup_at ? new Date(l.signup_at).toISOString().slice(0, 16).replace("T", " ") : "",
       l.converted_user_id ? "Member (paid)" : "Not yet",
       l.username || "",
     ]);
     const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-    ws["!cols"] = [22, 24, 12, 18, 18, 14, 18].map((w) => ({ wch: w }));
+    ws["!cols"] = [22, 24, 12, 24, 18, 16, 18, 14, 18].map((w) => ({ wch: w }));
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Sign-ups");
     const stamp = new Date().toISOString().slice(0, 10);
     res.setHeader("Content-Disposition", `attachment; filename=signups-${stamp}.xlsx`);
