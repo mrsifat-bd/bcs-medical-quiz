@@ -4,17 +4,21 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>MediVerse BCS Question Bank</title>
+<link rel="icon" href="/favicon.png"/>
+<script>try{if(localStorage.getItem('theme')==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
 <link rel="stylesheet" href="/styles.css"/>
 </head>
 <body>
 <header class="top">
-  <div class="logo"><span class="mark">🩺</span><span><b>MediVerse</b><small>BCS Question Bank</small></span></div>
+  <div class="logo"><img class="logo-img" src="/logo.png" alt="MediVerse" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-block'"/><b class="logo-fallback" style="display:none">MediVerse</b><span class="logo-sub"><small>BCS Question Bank</small></span></div>
   <div class="spacer"></div>
+  <button class="btn ghost sm" id="themeToggle" aria-label="Toggle night mode" title="Night mode">🌙</button>
   <span class="uinfo" id="uinfo"></span>
   <button class="btn ghost sm" id="fullAccessBtn">Get full access</button>
   <a class="btn ghost sm" id="loginLink" href="/login">Member log in</a>
   <button class="btn ghost sm" id="logoutBtn" style="display:none">Log out</button>
 </header>
+<script>(function(){var b=document.getElementById('themeToggle');if(!b)return;function u(){b.textContent=document.documentElement.classList.contains('dark')?'☀️':'🌙';}u();b.addEventListener('click',function(){document.documentElement.classList.toggle('dark');try{localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light');}catch(e){}u();});})();</script>
 
 <!-- FREE / REGISTERED feed -->
 <div class="container" id="freeView" style="display:none">
