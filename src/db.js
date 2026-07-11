@@ -99,6 +99,10 @@ CREATE TABLE IF NOT EXISTS guest_playlist (
   question_id INTEGER NOT NULL,
   PRIMARY KEY (gid, ord)
 );
+
+-- extra sign-up fields (added after initial launch)
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS bought_book TEXT;
 `;
 
 // ---- seeding ----
