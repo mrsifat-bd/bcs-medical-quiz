@@ -40,10 +40,12 @@ async function loadLeads(){
   const {leads}=await api("/api/admin/leads");
   const rows=leads.map(l=>`<tr>
     <td><b>${esc(l.name||"")}</b></td><td>${esc(l.medical||"")}</td><td>${esc(l.session||"")}</td>
-    <td>${esc(l.whatsapp||"")}</td><td style="white-space:nowrap;color:var(--muted)">${(l.signup_at||"").slice(0,10)}</td>
+    <td>${esc(l.email||"")}</td><td>${esc(l.whatsapp||"")}</td>
+    <td>${l.bought_book?`<span class="pill ${l.bought_book==="Yes"?"green":"gray"}">${esc(l.bought_book)}</span>`:""}</td>
+    <td style="white-space:nowrap;color:var(--muted)">${(l.signup_at||"").slice(0,10)}</td>
     <td>${l.converted_user_id?`<span class="pill green">member: ${esc(l.username||"")}</span>`:`<button class="btn sm" onclick="convertLead('${l.gid}','${enc(l.name||"")}')">Create login</button>`}</td>
   </tr>`).join("");
-  document.getElementById("leadTable").innerHTML=`<tr><th>Name</th><th>Medical college</th><th>Session</th><th>WhatsApp</th><th>Date</th><th>Action</th></tr>`+(rows||`<tr><td colspan="6" style="color:var(--muted)">No sign-ups yet.</td></tr>`);
+  document.getElementById("leadTable").innerHTML=`<tr><th>Name</th><th>Medical college</th><th>Session</th><th>Gmail</th><th>WhatsApp</th><th>Book?</th><th>Date</th><th>Action</th></tr>`+(rows||`<tr><td colspan="8" style="color:var(--muted)">No sign-ups yet.</td></tr>`);
 }
 async function convertLead(gid,name){
   const uname=prompt("Choose a username for "+decodeURIComponent(name)+":"); if(!uname)return;

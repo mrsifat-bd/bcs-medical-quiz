@@ -14,6 +14,7 @@
   <div class="spacer"></div>
   <button class="btn ghost sm" id="themeToggle" aria-label="Toggle night mode" title="Night mode">🌙</button>
   <span class="uinfo" id="uinfo"></span>
+  <button class="btn ghost sm" id="registerBtn" style="display:none" onclick="openSignup()">Register free</button>
   <button class="btn ghost sm" id="fullAccessBtn">Get full access</button>
   <a class="btn ghost sm" id="loginLink" href="/login">Member log in</a>
   <button class="btn ghost sm" id="logoutBtn" style="display:none">Log out</button>
@@ -21,17 +22,22 @@
 <script>(function(){var b=document.getElementById('themeToggle');if(!b)return;function u(){b.textContent=document.documentElement.classList.contains('dark')?'☀️':'🌙';}u();b.addEventListener('click',function(){document.documentElement.classList.toggle('dark');try{localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light');}catch(e){}u();});})();</script>
 
 <!-- FREE / REGISTERED feed -->
-<div class="container" id="freeView" style="display:none">
-  <div class="hero">
-    <div class="t">
-      <h1 id="heroTitle">Free practice</h1>
-      <p id="heroSub">Try questions from across every subject — no account needed.</p>
-      <div class="progress"><span id="bar" style="width:0%"></span></div>
+<div class="wrap" id="freeView" style="display:none">
+  <aside id="freeAside"><div class="side"><h3>Subjects</h3><div id="freeTree"></div></div></aside>
+  <main>
+    <div class="hero">
+      <div class="t">
+        <h1 id="heroTitle">Free practice</h1>
+        <p id="heroSub">Try questions from across every subject — no account needed.</p>
+        <div class="progress"><span id="bar" style="width:0%"></span></div>
+      </div>
+      <span class="badge free" id="tierBadge">Free</span>
     </div>
-    <span class="badge free" id="tierBadge">Free</span>
-  </div>
-  <div id="freeList"></div>
-  <div class="pager" id="freePager"></div>
+    <button class="btn gray sm subj-toggle" id="freeSubjToggle" onclick="toggleFreeAside()">☰ Browse subjects</button>
+    <div class="crumb" id="freeCrumb" style="margin-bottom:12px;display:none"></div>
+    <div id="freeList"></div>
+    <div class="pager" id="freePager"></div>
+  </main>
 </div>
 
 <!-- MEMBER full browser -->
@@ -60,7 +66,10 @@
     <div class="field"><label>Full name <span class="req">*</span></label><input id="su_name"/></div>
     <div class="field"><label>Medical college <span class="req">*</span></label><input id="su_medical"/></div>
     <div class="field"><label>Session (e.g. 2019–20) <span class="req">*</span></label><input id="su_session"/></div>
+    <div class="field"><label>Gmail <span class="req">*</span></label><input id="su_email" type="email" placeholder="you@gmail.com"/></div>
     <div class="field"><label>WhatsApp number <span class="req">*</span></label><input id="su_whatsapp" placeholder="+8801XXXXXXXXX"/></div>
+    <div class="field"><label>Have you bought the Password BCS &amp; Q-Verse BCS book? <span class="req">*</span></label>
+      <select id="su_bought"><option value="">Select…</option><option value="Yes">Yes</option><option value="No">No</option></select></div>
     <button class="btn block" id="su_go">Register &amp; continue</button>
     <p style="font-size:12px;color:var(--muted);text-align:center;margin:12px 0 0">All fields are required.</p>
   </div>
@@ -94,15 +103,35 @@
   </div>
 </div></div>
 
+<!-- COMBO BOOK promo popup -->
+<div class="modal-bg" id="comboModal">
+  <div class="combo">
+    <button class="combo-x" onclick="closeCombo()" aria-label="Close">×</button>
+    <a id="comboImgLink" href="#" target="_blank" rel="noopener">
+      <img src="/combo-book.png" alt="Password BCS & Q-Verse BCS combo book" class="combo-img" onerror="this.style.display='none';document.getElementById('comboFallback').style.display='block'"/>
+    </a>
+    <div id="comboFallback" class="combo-fallback" style="display:none">
+      <div style="font-size:40px">📚</div>
+      <h3>Password BCS &amp; Q-Verse BCS — Combo</h3>
+      <p>Get the complete combo book for your full BCS Medical preparation.</p>
+      <a class="btn" id="comboCta" href="#" target="_blank" rel="noopener">Get the combo →</a>
+    </div>
+  </div>
+</div>
+
 <script src="/common.js"></script>
 <script>
 let CFG={}, USER=null, flagId=null;
-let free={page:1,tier:"guest",quota:100,total:0};
+let free={page:1,tier:"guest",quota:100,total:0,subject:"",heading:""};
+let freeAnswered=0, comboShown=false;
+try{ if(sessionStorage.getItem('comboShown')==='1') comboShown=true; }catch(e){}
 let mem={subject:"",heading:"",search:"",difficulty:"",page:1,bookmarked:false};
 
 async function init(){
   CFG=await api("/api/config");
   document.getElementById("payLink").href=CFG.paymentUrl;
+  document.getElementById("comboCta").href=CFG.paymentUrl;
+  document.getElementById("comboImgLink").href=CFG.paymentUrl;
   document.getElementById("fullAccessBtn").onclick=()=>openPay();
   document.getElementById("logoutBtn").onclick=async()=>{await api("/api/logout",{method:"POST"});location.reload();};
   document.getElementById("su_go").onclick=doSignup;
@@ -111,15 +140,36 @@ async function init(){
 }
 /* ---------------- FREE / REGISTERED ---------------- */
 function showFree(){
-  document.getElementById("freeView").style.display="block";
+  document.getElementById("freeView").style.display="flex";
   document.getElementById("memberView").style.display="none";
   document.getElementById("logoutBtn").style.display="none";
   document.getElementById("loginLink").style.display="inline-block";
+  loadFreeTree();
   loadFeed();
 }
+async function loadFreeTree(){
+  try{
+    const {total,subjects}=await api("/api/subjects");
+    document.getElementById("freeTree").innerHTML=
+      `<div class="subj"><button onclick="freePick('','')"><span>All subjects</span><span class="cnt">${total}</span></button></div>`+
+      subjects.map((s,i)=>`<div class="subj" id="fsubj${i}">
+        <button onclick="freeToggle(${i},'${enc(s.subject)}')"><span>${esc(s.subject)}</span><span class="cnt">${s.count}</span></button>
+        <div class="headings">${s.headings.map(h=>`<button onclick="freePickHeading('${enc(s.subject)}','${enc(h.heading)}',event)"><span>${esc(h.heading)}</span><span class="cnt">${h.c}</span></button>`).join("")}</div></div>`).join("");
+  }catch(e){}
+}
+function freeToggle(i,s){const n=document.getElementById("fsubj"+i);n.classList.toggle("open");free.subject=decodeURIComponent(s);free.heading="";free.page=1;setFreeCrumb();loadFeed();closeFreeAsideMobile();}
+function freePick(s,h){free.subject=s;free.heading=h;free.page=1;document.querySelectorAll("#freeTree .headings button.active").forEach(b=>b.classList.remove("active"));setFreeCrumb();loadFeed();closeFreeAsideMobile();}
+function freePickHeading(s,h,e){e.stopPropagation();free.subject=decodeURIComponent(s);free.heading=decodeURIComponent(h);free.page=1;document.querySelectorAll("#freeTree .headings button.active").forEach(b=>b.classList.remove("active"));e.currentTarget.classList.add("active");setFreeCrumb();loadFeed();closeFreeAsideMobile();}
+function setFreeCrumb(){const c=document.getElementById("freeCrumb");if(free.subject){c.style.display="block";c.innerHTML=esc(free.subject)+(free.heading?` <small>› ${esc(free.heading)}</small>`:"")+` <button class="btn gray sm" style="margin-left:8px" onclick="freePick('','')">✕ Clear</button>`;}else{c.style.display="none";c.innerHTML="";}}
+function toggleFreeAside(){document.getElementById("freeAside").classList.toggle("open");}
+function closeFreeAsideMobile(){if(window.matchMedia("(max-width:820px)").matches)document.getElementById("freeAside").classList.remove("open");}
 async function loadFeed(){
-  const d=await api("/api/feed?page="+free.page);
+  let url="/api/feed?page="+free.page;
+  if(free.subject)url+="&subject="+encodeURIComponent(free.subject);
+  if(free.heading)url+="&heading="+encodeURIComponent(free.heading);
+  const d=await api(url);
   free.tier=d.tier; free.quota=d.quota; free.total=d.total;
+  document.getElementById("registerBtn").style.display=(d.tier==="guest")?"inline-block":"none";
   const badge=document.getElementById("tierBadge");
   if(d.tier==="registered"){badge.textContent="Registered · "+d.quota+" free";badge.className="badge";}
   else{badge.textContent="Free · "+d.quota+" questions";badge.className="badge free";}
@@ -131,12 +181,15 @@ async function loadFeed(){
   const pages=Math.ceil(d.total/d.pageSize)||1;
   const startNo=(d.page-1)*d.pageSize;
   let html=d.questions.map((q,i)=>qCard(q,startNo+i+1,false)).join("");
-  // wall at the very end
-  if(d.page>=pages){
+  // wall at the very end (only on the unfiltered feed)
+  if(d.page>=pages && !free.subject && !free.heading){
     if(d.tier==="guest") html+=wallCard("signup");
     else html+=wallCard("pay");
   }
-  document.getElementById("freeList").innerHTML=html||`<div class="qcard empty">No questions available.</div>`;
+  const emptyMsg=(free.subject||free.heading)
+    ? `<div class="qcard empty">No free questions in this topic yet. ${d.tier==="guest"?'Register free or ':''}<a href="#" onclick="openPay();return false">unlock the full bank</a> to study every topic.</div>`
+    : `<div class="qcard empty">No questions available.</div>`;
+  document.getElementById("freeList").innerHTML=html||emptyMsg;
   // pager
   const pg=document.getElementById("freePager");
   pg.innerHTML=`<button class="btn gray sm" ${d.page<=1?'disabled':''} onclick="freeGoto(${d.page-1})">‹ Prev</button>
@@ -223,7 +276,9 @@ function answer(qid,chosen,correct,member){
     if(idx===correct)o.classList.add("correct"); if(idx===chosen&&chosen!==correct)o.classList.add("wrong");});
   document.getElementById("expl"+qid).classList.add("show");
   if(member)api("/api/attempt",{method:"POST",body:JSON.stringify({question_id:qid,chosen})}).catch(()=>{});
+  if(!member){ freeAnswered++; if(freeAnswered>=2 && !comboShown){ comboShown=true; try{sessionStorage.setItem('comboShown','1');}catch(e){} setTimeout(()=>document.getElementById('comboModal').classList.add('show'),500); } }
 }
+function closeCombo(){document.getElementById('comboModal').classList.remove('show');}
 async function toggleBm(qid,btn){
   const on=!btn.classList.contains("on");
   try{await api("/api/bookmarks",{method:"POST",body:JSON.stringify({question_id:qid,on})});btn.classList.toggle("on",on);btn.textContent=on?'★':'☆';}catch(e){alert(e.message);}
@@ -236,7 +291,7 @@ function openPay(){document.getElementById("payModal").classList.add("show");}
 document.addEventListener("click",e=>{ if(e.target.classList.contains("modal-bg")) e.target.classList.remove("show"); });
 async function doSignup(){
   const m=document.getElementById("suMsg");m.innerHTML="";
-  const body={name:su_name.value.trim(),medical:su_medical.value.trim(),session:su_session.value.trim(),whatsapp:su_whatsapp.value.trim()};
+  const body={name:su_name.value.trim(),medical:su_medical.value.trim(),session:su_session.value.trim(),email:su_email.value.trim(),whatsapp:su_whatsapp.value.trim(),bought_book:su_bought.value};
   try{
     await api("/api/signup",{method:"POST",body:JSON.stringify(body)});
     document.getElementById("signupModal").classList.remove("show");

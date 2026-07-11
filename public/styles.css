@@ -180,6 +180,37 @@ th{color:var(--navy);font-size:13px;font-weight:700}
   .top{gap:6px;padding:8px 10px}
 }
 
+/* ---------- glass reveal + hover on answered options ---------- */
+.opt.correct,.opt.wrong{position:relative;overflow:hidden;animation:opt-pop .32s ease}
+.opt.correct::after,.opt.wrong::after{content:"";position:absolute;top:0;left:-70%;width:60%;height:100%;
+  background:linear-gradient(120deg,transparent,rgba(255,255,255,.6),transparent);transform:skewX(-20deg);
+  animation:opt-shine .85s ease-out;pointer-events:none}
+@keyframes opt-shine{to{left:135%}}
+@keyframes opt-pop{0%{transform:scale(.97)}60%{transform:scale(1.012)}100%{transform:scale(1)}}
+.opt.correct:hover,.opt.wrong:hover{backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);
+  box-shadow:0 6px 22px rgba(16,42,67,.18)}
+
+/* ---------- combo book popup ---------- */
+.combo{position:relative;background:#fff;border-radius:18px;box-shadow:var(--shadow-lg);max-width:420px;width:100%;
+  overflow:hidden;animation:pop .25s ease-out}
+html.dark .combo{background:#16212e}
+.combo-img{display:block;width:100%;height:auto}
+.combo-x{position:absolute;top:10px;right:10px;z-index:2;width:34px;height:34px;border-radius:50%;border:none;
+  background:rgba(0,0,0,.55);color:#fff;font-size:22px;line-height:1;cursor:pointer;display:grid;place-items:center}
+.combo-x:hover{background:rgba(0,0,0,.78)}
+.combo-fallback{padding:26px;text-align:center}
+.combo-fallback h3{margin:6px 0;color:var(--navy)}
+html.dark .combo-fallback h3{color:#dbe7f2}
+.combo-fallback p{color:var(--muted);margin:0 0 16px}
+
+/* ---------- browse-subjects toggle (free view, mobile) ---------- */
+.subj-toggle{display:none}
+@media(max-width:820px){
+  #freeAside{display:none;margin-bottom:4px}
+  #freeAside.open{display:block}
+  .subj-toggle{display:inline-block;margin-bottom:14px}
+}
+
 /* ---------- night mode ---------- */
 html.dark{
   --bg:#0f1720; --card:#16212e; --ink:#e6eef6; --muted:#93a4b6; --line:#28353f;
