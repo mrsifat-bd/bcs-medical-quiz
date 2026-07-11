@@ -346,6 +346,29 @@ app.post("/api/admin/leads/:gid/convert", requireAdmin, async (req, res, next) =
   } catch (e) { next(e); }
 });
 
+// download sign-ups (leads) as an Excel file
+app.get("/api/admin/leads.xlsx", requireAdmin, async (req, res, next) => {
+  try {
+    const leads = await db.all(`SELECT name,medical,session,whatsapp,signup_at,converted_user_id,
+       (SELECT username FROM users u WHERE u.id=guests.converted_user_id) AS username
+       FROM guests WHERE tier='registered' ORDER BY signup_at DESC LIMIT 5000`);
+    const header = ["Name", "Medical college", "Session", "WhatsApp", "Signed up", "Status", "Member username"];
+    const rows = leads.map((l) => [
+      l.name || "", l.medical || "", l.session || "", l.whatsapp || "",
+      l.signup_at ? new Date(l.signup_at).toISOString().slice(0, 16).replace("T", " ") : "",
+      l.converted_user_id ? "Member (paid)" : "Not yet",
+      l.username || "",
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    ws["!cols"] = [22, 24, 12, 18, 18, 14, 18].map((w) => ({ wch: w }));
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Sign-ups");
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Disposition", `attachment; filename=signups-${stamp}.xlsx`);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.send(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+  } catch (e) { next(e); }
+});
+
 // flags admin
 app.get("/api/admin/flags", requireAdmin, async (req, res, next) => {
   try {
