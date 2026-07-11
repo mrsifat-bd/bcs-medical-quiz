@@ -130,8 +130,9 @@ let mem={subject:"",heading:"",search:"",difficulty:"",page:1,bookmarked:false};
 async function init(){
   CFG=await api("/api/config");
   document.getElementById("payLink").href=CFG.paymentUrl;
-  document.getElementById("comboCta").href=CFG.paymentUrl;
-  document.getElementById("comboImgLink").href=CFG.paymentUrl;
+  var comboUrl="https://docs.google.com/forms/d/e/1FAIpQLSewHlQddVOt-LLXlW7gCi1cj490HOXwdLbvD3onpBnC5ta3fQ/viewform";
+  document.getElementById("comboCta").href=comboUrl;
+  document.getElementById("comboImgLink").href=comboUrl;
   document.getElementById("fullAccessBtn").onclick=()=>openPay();
   document.getElementById("logoutBtn").onclick=async()=>{await api("/api/logout",{method:"POST"});location.reload();};
   document.getElementById("su_go").onclick=doSignup;
