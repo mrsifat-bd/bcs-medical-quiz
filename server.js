@@ -34,6 +34,31 @@ app.use(async (req, res, next) => {
   }
 });
 
+// ---------- request helpers (IP + device tracking) ----------
+function clientIp(req) {
+  const xf = req.headers["x-forwarded-for"];
+  if (xf) return String(xf).split(",")[0].trim();
+  return req.headers["x-real-ip"] || (req.socket && req.socket.remoteAddress) || "";
+}
+function parseDevice(ua) {
+  ua = ua || "";
+  let os = "Unknown OS";
+  if (/Windows NT 10/.test(ua)) os = "Windows 10/11";
+  else if (/Windows/.test(ua)) os = "Windows";
+  else if (/iPhone/.test(ua)) os = "iPhone";
+  else if (/iPad/.test(ua)) os = "iPad";
+  else if (/Android/.test(ua)) { const m = ua.match(/Android [\d.]+; ?([^;)]+)/); os = "Android" + (m ? " (" + m[1].trim() + ")" : ""); }
+  else if (/Mac OS X/.test(ua)) os = "Mac";
+  else if (/Linux/.test(ua)) os = "Linux";
+  let br = "Unknown browser";
+  if (/Edg\//.test(ua)) br = "Edge";
+  else if (/OPR\/|Opera/.test(ua)) br = "Opera";
+  else if (/Chrome\//.test(ua) && !/Chromium/.test(ua)) br = "Chrome";
+  else if (/Firefox\//.test(ua)) br = "Firefox";
+  else if (/Safari\//.test(ua) && /Version\//.test(ua)) br = "Safari";
+  return br + " on " + os;
+}
+
 // ---------- auth (paid users / admin) ----------
 function setSession(res, token) {
   res.cookie("sid", token, { httpOnly: true, sameSite: "lax", secure: SECURE_COOKIES, maxAge: 1000 * 60 * 60 * 24 * 30 });
@@ -108,6 +133,35 @@ app.get("/api/config", (req, res) => {
 });
 app.get("/api/me", async (req, res, next) => {
   try { res.json({ user: await currentUser(req) }); } catch (e) { next(e); }
+});
+
+// ---------- time tracking (heartbeat every ~20s from the browser) ----------
+app.post("/api/heartbeat", async (req, res) => {
+  try {
+    const inc = Math.min(60, Math.max(1, parseInt(req.body && req.body.seconds) || 20));
+    const u = await currentUser(req);
+    if (u) {
+      await db.run("UPDATE users SET total_seconds=total_seconds+$1 WHERE id=$2", [inc, u.id]);
+    } else if (req.cookies.gid) {
+      await db.run("UPDATE guests SET total_seconds=total_seconds+$1 WHERE gid=$2", [inc, req.cookies.gid]);
+    }
+    res.json({ ok: true });
+  } catch (e) { res.json({ ok: false }); }
+});
+
+// ---------- model test: 100 random questions, graded client-side after the timer ----------
+app.get("/api/modeltest", async (req, res, next) => {
+  try {
+    const n = Math.min(100, Math.max(10, parseInt(req.query.n) || 100));
+    const rows = await db.all("SELECT * FROM questions WHERE active=1 ORDER BY random() LIMIT $1", [n]);
+    res.json({
+      durationSec: 3600,
+      questions: rows.map((q) => ({
+        id: q.id, subject: q.subject, stem: q.stem,
+        options: [q.opta, q.optb, q.optc, q.optd], answer: q.answer, explanation: q.explanation,
+      })),
+    });
+  } catch (e) { next(e); }
 });
 
 // ---------- free / registered feed ----------
@@ -223,8 +277,11 @@ app.post("/api/login", async (req, res, next) => {
       if (!u.device_id) await db.run("UPDATE users SET device_id=$1 WHERE id=$2", [device_id, u.id]);
       else if (u.device_id !== device_id) return res.status(403).json({ error: "This account is locked to another device. Contact the administrator to reset it." });
     }
+    // Rotating the session_token invalidates any other browser/session already
+    // logged into this account (only one active login at a time).
     const token = crypto.randomBytes(24).toString("hex");
-    await db.run("UPDATE users SET session_token=$1 WHERE id=$2", [token, u.id]);
+    await db.run("UPDATE users SET session_token=$1, last_ip=$2, last_device=$3, last_login_at=now() WHERE id=$4",
+      [token, clientIp(req), parseDevice(req.headers["user-agent"]), u.id]);
     setSession(res, token);
     res.json({ id: u.id, username: u.username, name: u.name, role: u.role });
   } catch (e) { next(e); }
@@ -290,7 +347,8 @@ app.get("/api/admin/stats", requireAdmin, async (req, res, next) => {
 });
 app.get("/api/admin/users", requireAdmin, async (req, res, next) => {
   try {
-    const users = await db.all(`SELECT id,username,name,active,created_at,(device_id IS NOT NULL) AS bound
+    const users = await db.all(`SELECT id,username,name,active,created_at,last_ip,last_device,last_login_at,total_seconds,
+       (device_id IS NOT NULL) AS bound
        FROM users WHERE role='user' ORDER BY id DESC`);
     res.json({ users });
   } catch (e) { next(e); }
