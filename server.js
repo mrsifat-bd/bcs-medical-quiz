@@ -122,6 +122,11 @@ async function getGuest(req, res) {
     await buildPlaylist(gid, FREE_QUOTA, 1);
     res.cookie("gid", gid, { httpOnly: true, sameSite: "lax", secure: SECURE_COOKIES, maxAge: 1000 * 60 * 60 * 24 * 365 });
     g = await db.get("SELECT * FROM guests WHERE gid=$1", [gid]);
+  } else {
+    // Returning guest: if their playlist is empty (e.g. after a question re-seed),
+    // rebuild it for their current tier so the feed is never blank.
+    const pc = await db.get("SELECT COUNT(*)::int c FROM guest_playlist WHERE gid=$1", [gid]);
+    if (pc.c === 0) await buildPlaylist(gid, quotaFor(g.tier), 1);
   }
   return g;
 }
