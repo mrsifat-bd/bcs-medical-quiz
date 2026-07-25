@@ -211,6 +211,17 @@ html.dark .combo-fallback h3{color:#dbe7f2}
   .subj-toggle{display:inline-block;margin-bottom:14px}
 }
 
+/* ---------- model test ---------- */
+.mt-bar{position:sticky;top:70px;z-index:20;background:var(--card);border:1px solid var(--line);border-radius:12px;
+  box-shadow:var(--shadow);padding:10px 16px;display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap}
+.mt-timer{font-weight:800;font-size:20px;color:var(--navy);background:#eef2f6;border-radius:8px;padding:4px 14px;font-variant-numeric:tabular-nums}
+.mt-timer.warn{color:#fff;background:var(--red);animation:mt-pulse 1s infinite}
+@keyframes mt-pulse{50%{opacity:.55}}
+.mt-bar #mtProgress{color:var(--muted);font-size:14px;flex:1;min-width:120px}
+.opt.sel{border-color:var(--teal);background:#eafaf7}
+html.dark .opt.sel{background:#123330}
+html.dark .mt-timer{background:#22303d;color:#dbe7f2}
+
 /* ---------- night mode ---------- */
 html.dark{
   --bg:#0f1720; --card:#16212e; --ink:#e6eef6; --muted:#93a4b6; --line:#28353f;

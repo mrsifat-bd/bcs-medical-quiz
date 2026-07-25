@@ -13,6 +13,7 @@
   <div class="logo"><img class="logo-img" src="/logo.png" alt="MediVerse" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-block'"/><b class="logo-fallback" style="display:none">MediVerse</b><span class="logo-sub"><small>BCS Question Bank</small></span></div>
   <div class="spacer"></div>
   <button class="btn ghost sm" id="themeToggle" aria-label="Toggle night mode" title="Night mode">🌙</button>
+  <button class="btn ghost sm" id="modeltestBtn" onclick="openModelTest()">📝 Model Test</button>
   <span class="uinfo" id="uinfo"></span>
   <button class="btn ghost sm" id="registerBtn" style="display:none" onclick="openSignup()">Register free</button>
   <button class="btn ghost sm" id="fullAccessBtn">Get full access</button>
@@ -54,6 +55,27 @@
     <div id="memberList"></div>
     <div class="pager" id="memberPager"></div>
   </main>
+</div>
+
+<!-- MODEL TEST -->
+<div class="container" id="modeltestView" style="display:none">
+  <div id="mtIntro" class="qcard" style="text-align:center">
+    <div class="icon-big" style="margin:0 auto 10px">📝</div>
+    <h2 style="color:var(--navy);margin:2px 0">Model Test</h2>
+    <p style="color:var(--muted);max-width:520px;margin:6px auto 18px">100 questions · 60 minutes. The timer auto-submits when time runs out. Your score and a full answer review (correct &amp; wrong) appear at the end.</p>
+    <button class="btn" id="mtStart" onclick="startModelTest()">Start test →</button>
+    <button class="btn gray" onclick="exitModelTest()">Back</button>
+  </div>
+  <div id="mtRun" style="display:none">
+    <div class="mt-bar">
+      <div class="mt-timer" id="mtTimer">60:00</div>
+      <div id="mtProgress">0 answered</div>
+      <button class="btn" onclick="submitModelTest(false)">Submit test</button>
+    </div>
+    <div id="mtList"></div>
+    <div style="text-align:center;margin:8px 0 30px"><button class="btn" onclick="submitModelTest(false)">Submit test</button></div>
+  </div>
+  <div id="mtResult" style="display:none"></div>
 </div>
 
 <!-- SIGN-UP modal -->
@@ -124,6 +146,7 @@
 let CFG={}, USER=null, flagId=null;
 let free={page:1,tier:"guest",quota:100,total:0,subject:"",heading:""};
 let freeAnswered=0, comboShown=false;
+var SHOW_COMBO=false; // combo-book popup disabled
 try{ if(sessionStorage.getItem('comboShown')==='1') comboShown=true; }catch(e){}
 let mem={subject:"",heading:"",search:"",difficulty:"",page:1,bookmarked:false};
 
@@ -138,6 +161,88 @@ async function init(){
   document.getElementById("su_go").onclick=doSignup;
   USER=await me();
   if(USER){ showMember(); } else { showFree(); }
+  // time tracking: heartbeat every 20s while the tab is visible
+  setInterval(()=>{ if(document.visibilityState==="visible"){ api("/api/heartbeat",{method:"POST",body:JSON.stringify({seconds:20})}).catch(()=>{}); } }, 20000);
+}
+
+/* ---------------- MODEL TEST ---------------- */
+let mt={questions:[],answers:{},endTime:0,timer:null,submitted:false};
+function openModelTest(){
+  document.getElementById("freeView").style.display="none";
+  document.getElementById("memberView").style.display="none";
+  document.getElementById("modeltestView").style.display="block";
+  document.getElementById("mtIntro").style.display="block";
+  document.getElementById("mtRun").style.display="none";
+  document.getElementById("mtResult").style.display="none";
+  window.scrollTo({top:0});
+}
+function exitModelTest(){ if(mt.timer)clearInterval(mt.timer); mt.submitted=true; document.getElementById("modeltestView").style.display="none"; if(USER)showMember(); else showFree(); }
+async function startModelTest(){
+  const btn=document.getElementById("mtStart"); if(btn)btn.disabled=true;
+  try{
+    const d=await api("/api/modeltest?n=100");
+    mt.questions=d.questions; mt.answers={}; mt.submitted=false;
+    mt.endTime=Date.now()+(d.durationSec*1000);
+    renderMtList();
+    document.getElementById("mtIntro").style.display="none";
+    document.getElementById("mtResult").style.display="none";
+    document.getElementById("mtRun").style.display="block";
+    if(mt.timer)clearInterval(mt.timer);
+    mt.timer=setInterval(tickMt,1000); tickMt();
+    window.scrollTo({top:0});
+  }catch(e){ alert(e.message); }
+  if(btn)btn.disabled=false;
+}
+function tickMt(){
+  const left=Math.max(0,Math.round((mt.endTime-Date.now())/1000));
+  const el=document.getElementById("mtTimer"); if(!el)return;
+  el.textContent=String(Math.floor(left/60)).padStart(2,'0')+":"+String(left%60).padStart(2,'0');
+  if(left<=300)el.classList.add("warn");
+  if(left<=0)submitModelTest(true);
+}
+function renderMtList(){
+  const labs=["A","B","C","D"];
+  document.getElementById("mtProgress").textContent="0 / "+mt.questions.length+" answered";
+  document.getElementById("mtList").innerHTML=mt.questions.map((q,qi)=>`
+    <div class="qcard" id="mtq${qi}">
+      <div class="qhead"><div class="qnum">Q${qi+1}.</div><div class="qtags"><span class="tag subject">${esc(q.subject)}</span></div></div>
+      <div class="stem">${md(q.stem)}</div>
+      <div class="opts">${q.options.map((o,oi)=>`<div class="opt" onclick="pickMt(${qi},${oi})"><span class="lab">${labs[oi]}</span><span>${md(o)}</span></div>`).join("")}</div>
+    </div>`).join("");
+}
+function pickMt(qi,oi){
+  if(mt.submitted)return;
+  mt.answers[qi]=oi;
+  document.querySelectorAll("#mtq"+qi+" .opt").forEach((el,i)=>el.classList.toggle("sel",i===oi));
+  document.getElementById("mtProgress").textContent=Object.keys(mt.answers).length+" / "+mt.questions.length+" answered";
+}
+function submitModelTest(auto){
+  if(mt.submitted)return; mt.submitted=true;
+  if(mt.timer)clearInterval(mt.timer);
+  const labs=["A","B","C","D"];
+  let correct=0;
+  mt.questions.forEach((q,qi)=>{ if(mt.answers[qi]===q.answer)correct++; });
+  const total=mt.questions.length, pct=Math.round(correct/total*100);
+  const answered=Object.keys(mt.answers).length;
+  const review=mt.questions.map((q,qi)=>{
+    const chosen=mt.answers[qi], ok=chosen===q.answer;
+    const tag=chosen===undefined?'<span class="tag">Not answered</span>':(ok?'<span class="pill green">Correct</span>':'<span class="pill" style="background:var(--redbg);color:var(--red)">Wrong</span>');
+    return `<div class="qcard"><div class="qhead"><div class="qnum">Q${qi+1}.</div><div class="qtags"><span class="tag subject">${esc(q.subject)}</span>${tag}</div></div>
+      <div class="stem">${md(q.stem)}</div>
+      <div class="opts">${q.options.map((o,oi)=>{let c="opt disabled";if(oi===q.answer)c+=" correct";if(oi===chosen&&chosen!==q.answer)c+=" wrong";return `<div class="${c}"><span class="lab">${labs[oi]}</span><span>${md(o)}</span></div>`;}).join("")}</div>
+      <div class="expl show"><div class="ans">Answer: ${labs[q.answer]}</div><div><strong>Explanation:</strong> ${md(q.explanation)}</div></div></div>`;
+  }).join("");
+  document.getElementById("mtRun").style.display="none";
+  const res=document.getElementById("mtResult");
+  res.style.display="block";
+  res.innerHTML=`<div class="qcard" style="text-align:center">
+    <div class="icon-big" style="margin:0 auto 8px;background:${pct>=50?'var(--greenbg)':'var(--amberbg)'};color:${pct>=50?'var(--green)':'var(--amber)'}">${pct>=50?'🎉':'📘'}</div>
+    <h2 style="color:var(--navy);margin:2px 0">${auto?"⏰ Time's up! ":""}Score: ${correct} / ${total} (${pct}%)</h2>
+    <p style="color:var(--muted)">${correct} correct · ${total-correct} wrong or unanswered · ${answered}/${total} attempted</p>
+    <button class="btn" onclick="startModelTest()">Retake test</button>
+    <button class="btn gray" onclick="exitModelTest()">Back to practice</button></div>
+    <h3 style="color:var(--navy);margin:20px 4px 8px">Answer review</h3>${review}`;
+  window.scrollTo({top:0,behavior:"smooth"});
 }
 /* ---------------- FREE / REGISTERED ---------------- */
 function showFree(){
@@ -277,7 +382,7 @@ function answer(qid,chosen,correct,member){
     if(idx===correct)o.classList.add("correct"); if(idx===chosen&&chosen!==correct)o.classList.add("wrong");});
   document.getElementById("expl"+qid).classList.add("show");
   if(member)api("/api/attempt",{method:"POST",body:JSON.stringify({question_id:qid,chosen})}).catch(()=>{});
-  if(!member){ freeAnswered++; if(freeAnswered>=2 && !comboShown){ comboShown=true; try{sessionStorage.setItem('comboShown','1');}catch(e){} setTimeout(()=>document.getElementById('comboModal').classList.add('show'),500); } }
+  if(!member && SHOW_COMBO){ freeAnswered++; if(freeAnswered>=2 && !comboShown){ comboShown=true; try{sessionStorage.setItem('comboShown','1');}catch(e){} setTimeout(()=>document.getElementById('comboModal').classList.add('show'),500); } }
 }
 function closeCombo(){document.getElementById('comboModal').classList.remove('show');}
 async function toggleBm(qid,btn){

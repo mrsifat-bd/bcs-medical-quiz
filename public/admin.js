@@ -63,12 +63,18 @@ async function loadUsers(){
     <td><b>${esc(u.username)}</b></td><td>${esc(u.name||"")}</td>
     <td>${u.active?'<span class="pill green">active</span>':'<span class="pill gray">disabled</span>'}</td>
     <td>${u.bound?'<span class="pill amber">device bound</span>':'<span class="pill gray">not bound</span>'}</td>
+    <td style="white-space:nowrap">${esc(u.last_ip||"—")}</td>
+    <td>${esc(u.last_device||"—")}</td>
+    <td style="white-space:nowrap;color:var(--muted)">${u.last_login_at?String(u.last_login_at).slice(0,16).replace("T"," "):"—"}</td>
+    <td style="white-space:nowrap">${fmtDur(u.total_seconds||0)}</td>
     <td style="white-space:nowrap">
       <button class="btn gray sm" onclick="resetDevice(${u.id})">Reset device</button>
       <button class="btn gray sm" onclick="toggleActive(${u.id},${u.active?0:1})">${u.active?"Disable":"Enable"}</button>
       <button class="btn gray sm" onclick="resetPw(${u.id})">Password</button>
       <button class="btn danger sm" onclick="delUser(${u.id},'${enc(u.username)}')">Delete</button></td></tr>`).join("");
-  document.getElementById("userTable").innerHTML=`<tr><th>Username</th><th>Name</th><th>Status</th><th>Device</th><th>Actions</th></tr>`+(rows||`<tr><td colspan="5" style="color:var(--muted)">No members yet.</td></tr>`);
+  document.getElementById("userTable").innerHTML=`<tr><th>Username</th><th>Name</th><th>Status</th><th>Device lock</th><th>Last IP</th><th>Device</th><th>Last login</th><th>Time spent</th><th>Actions</th></tr>`+(rows||`<tr><td colspan="9" style="color:var(--muted)">No members yet.</td></tr>`);
+}
+function fmtDur(s){s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor((s%3600)/60);if(h)return h+"h "+m+"m";if(m)return m+"m";return s+"s";
 }
 document.getElementById("addUser").addEventListener("click",async()=>{
   const m=document.getElementById("umsg");m.innerHTML="";
