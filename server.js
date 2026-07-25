@@ -11,8 +11,8 @@ const { parseFile } = require("./src/parse");
 
 // ---------- configuration ----------
 const BRAND = "MediVerse BCS Question Bank";
-const FREE_QUOTA = 100;          // guest (no account)
-const REG_QUOTA = 200;           // after free sign-up (100 + 100)
+const FREE_QUOTA = 50;           // guest (no account)
+const REG_QUOTA = 100;           // after free sign-up (50 + 50)
 // The payment / registration form link students are sent to.
 const PAYMENT_URL = process.env.PAYMENT_URL ||
   "https://docs.google.com/forms/d/1avDCTQBsNAKXKII1gvTIJoNFnasdXA3TR8xB1Ydzoa4/edit";
@@ -119,14 +119,8 @@ async function getGuest(req, res) {
   if (!g) {
     gid = "g-" + crypto.randomBytes(16).toString("hex");
     await db.run("INSERT INTO guests (gid,tier) VALUES ($1,'guest')", [gid]);
-    await buildPlaylist(gid, FREE_QUOTA, 1);
     res.cookie("gid", gid, { httpOnly: true, sameSite: "lax", secure: SECURE_COOKIES, maxAge: 1000 * 60 * 60 * 24 * 365 });
     g = await db.get("SELECT * FROM guests WHERE gid=$1", [gid]);
-  } else {
-    // Returning guest: if their playlist is empty (e.g. after a question re-seed),
-    // rebuild it for their current tier so the feed is never blank.
-    const pc = await db.get("SELECT COUNT(*)::int c FROM guest_playlist WHERE gid=$1", [gid]);
-    if (pc.c === 0) await buildPlaylist(gid, quotaFor(g.tier), 1);
   }
   return g;
 }
@@ -154,18 +148,56 @@ app.post("/api/heartbeat", async (req, res) => {
   } catch (e) { res.json({ ok: false }); }
 });
 
-// ---------- model test: 100 random questions, graded client-side after the timer ----------
-app.get("/api/modeltest", async (req, res, next) => {
+// ---------- model tests (from the PDF): 11 tests, test 1 free, 60-minute timer ----------
+app.get("/api/modeltests", async (req, res, next) => {
   try {
-    const n = Math.min(100, Math.max(10, parseInt(req.query.n) || 100));
-    const rows = await db.all("SELECT * FROM questions WHERE active=1 ORDER BY random() LIMIT $1", [n]);
+    const rows = await db.all("SELECT test_no, COUNT(*)::int c FROM model_tests GROUP BY test_no ORDER BY test_no");
+    const isMember = !!(await currentUser(req));
+    const tests = [];
+    for (const r of rows) {
+      const takers = (await db.get("SELECT COUNT(*)::int c FROM model_test_results WHERE test_no=$1", [r.test_no])).c;
+      tests.push({ test_no: r.test_no, count: r.c, free: r.test_no === 1, locked: r.test_no !== 1 && !isMember, takers });
+    }
+    res.json({ isMember, tests });
+  } catch (e) { next(e); }
+});
+app.get("/api/modeltest/:n", async (req, res, next) => {
+  try {
+    const n = parseInt(req.params.n) || 0;
+    if (n !== 1) {
+      const u = await currentUser(req);
+      if (!u) return res.status(403).json({ error: "Only Model Test 1 is free. Get full access to unlock all 11 model tests.", locked: true });
+    }
+    const rows = await db.all("SELECT q_no,stem,opta,optb,optc,optd,answer FROM model_tests WHERE test_no=$1 ORDER BY q_no", [n]);
+    if (!rows.length) return res.status(404).json({ error: "Model test not found." });
     res.json({
-      durationSec: 3600,
-      questions: rows.map((q) => ({
-        id: q.id, subject: q.subject, stem: q.stem,
-        options: [q.opta, q.optb, q.optc, q.optd], answer: q.answer, explanation: q.explanation,
-      })),
+      test_no: n, durationSec: 3600,
+      questions: rows.map((q) => ({ id: q.q_no, stem: q.stem, options: [q.opta, q.optb, q.optc, q.optd], answer: q.answer })),
     });
+  } catch (e) { next(e); }
+});
+app.post("/api/modeltest/:n/result", async (req, res, next) => {
+  try {
+    const n = parseInt(req.params.n) || 0;
+    const total = Math.max(1, parseInt(req.body && req.body.total) || 100);
+    const score = Math.min(total, Math.max(0, parseInt(req.body && req.body.score) || 0));
+    const u = await currentUser(req);
+    let ref = "anon", name = "Anonymous";
+    if (u) { ref = "u:" + u.id; name = u.name || u.username; }
+    else if (req.cookies.gid) {
+      ref = "g:" + req.cookies.gid;
+      const g = await db.get("SELECT name FROM guests WHERE gid=$1", [req.cookies.gid]);
+      name = (g && g.name) || "Guest";
+    }
+    await db.run("INSERT INTO model_test_results (test_no,ref,name,score,total) VALUES ($1,$2,$3,$4,$5)", [n, ref, name, score, total]);
+    const takers = (await db.get("SELECT COUNT(*)::int c FROM model_test_results WHERE test_no=$1", [n])).c;
+    const better = (await db.get("SELECT COUNT(*)::int c FROM model_test_results WHERE test_no=$1 AND score>$2", [n, score])).c;
+    const rank = better + 1;
+    const percentile = takers > 1 ? Math.round((takers - rank) / (takers - 1) * 100) : 100;
+    const avg = (await db.get("SELECT COALESCE(AVG(score),0)::float a FROM model_test_results WHERE test_no=$1", [n])).a;
+    const pct = Math.round(score / total * 100);
+    const category = pct >= 80 ? "Excellent" : pct >= 65 ? "Very good" : pct >= 50 ? "Good" : pct >= 35 ? "Average" : "Needs improvement";
+    res.json({ rank, takers, percentile, category, pct, avgScore: Math.round(Number(avg)) });
   } catch (e) { next(e); }
 });
 
@@ -173,28 +205,28 @@ app.get("/api/modeltest", async (req, res, next) => {
 app.get("/api/feed", async (req, res, next) => {
   try {
     const g = await getGuest(req, res);
-    const quota = quotaFor(g.tier);
+    const quota = quotaFor(g.tier);   // 50 for guests, 100 after sign-up
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const pageSize = 10;
     const subject = String(req.query.subject || "").trim();
     const heading = String(req.query.heading || "").trim();
-    const params = [g.gid, quota];
+    // Shared free pool: the same ~100 free questions for everyone, ranked by id.
+    // Guests see the first 50, registered users all 100; the rest is locked.
+    const params = [quota];
     let filterSql = "";
-    if (subject) { params.push(subject); filterSql += ` AND q.subject=$${params.length}`; }
-    if (heading) { params.push(heading); filterSql += ` AND q.heading=$${params.length}`; }
-    const totalRow = await db.get(
-      `SELECT COUNT(*)::int c FROM guest_playlist p JOIN questions q ON q.id=p.question_id
-       WHERE p.gid=$1 AND p.ord<=$2${filterSql}`, params);
-    const total = Math.min(quota, totalRow.c);
+    if (subject) { params.push(subject); filterSql += ` AND subject=$${params.length}`; }
+    if (heading) { params.push(heading); filterSql += ` AND heading=$${params.length}`; }
+    const cte = `WITH fp AS (SELECT *, row_number() OVER (ORDER BY id) rn FROM questions WHERE active=1 AND is_free=1)`;
+    const totalRow = await db.get(`${cte} SELECT COUNT(*)::int c FROM fp WHERE rn<=$1${filterSql}`, params);
+    const total = totalRow.c;
     const rows = await db.all(
-      `SELECT q.* FROM guest_playlist p JOIN questions q ON q.id=p.question_id
-       WHERE p.gid=$1 AND p.ord<=$2${filterSql} ORDER BY p.ord LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      `${cte} SELECT * FROM fp WHERE rn<=$1${filterSql} ORDER BY rn LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, pageSize, (page - 1) * pageSize]);
     const questions = rows.map((q) => ({
       id: q.id, subject: q.subject, heading: q.heading, difficulty: q.difficulty, style: q.style,
       stem: q.stem, options: [q.opta, q.optb, q.optc, q.optd], answer: q.answer, explanation: q.explanation, bookmarked: false,
     }));
-    res.json({ tier: g.tier, quota, total, page, pageSize, questions, canSignup: g.tier === "guest", atPaymentWall: false });
+    res.json({ tier: g.tier, quota, total, page, pageSize, questions, canSignup: g.tier === "guest", atPaymentWall: false, freeTotal: 100 });
   } catch (e) { next(e); }
 });
 
@@ -217,7 +249,6 @@ app.post("/api/signup", async (req, res, next) => {
       return res.status(400).json({ error: "Please enter a valid WhatsApp number." });
     await db.run("UPDATE guests SET tier='registered', name=$1, medical=$2, session=$3, whatsapp=$4, email=$5, bought_book=$6, signup_at=now() WHERE gid=$7",
       [name, medical, session, whatsapp, email, bought, g.gid]);
-    await buildPlaylist(g.gid, REG_QUOTA - FREE_QUOTA, FREE_QUOTA + 1); // add the next 100
     res.json({ ok: true, tier: "registered", quota: REG_QUOTA });
   } catch (e) { next(e); }
 });
