@@ -100,10 +100,25 @@ CREATE TABLE IF NOT EXISTS guest_playlist (
   PRIMARY KEY (gid, ord)
 );
 
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
+
 -- extra sign-up fields (added after initial launch)
 ALTER TABLE guests ADD COLUMN IF NOT EXISTS email TEXT;
 ALTER TABLE guests ADD COLUMN IF NOT EXISTS bought_book TEXT;
+ALTER TABLE guests ADD COLUMN IF NOT EXISTS total_seconds INTEGER NOT NULL DEFAULT 0;
+
+-- login/device/time tracking on member accounts
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_ip TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_device TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS total_seconds INTEGER NOT NULL DEFAULT 0;
 `;
+
+// Bump this whenever data/questions.json changes to force a full re-seed on deploy.
+const QUESTIONS_VERSION = "qverse-bcs-2026-07";
 
 // ---- seeding ----
 async function bulkInsertQuestions(items) {
@@ -127,11 +142,14 @@ async function bulkInsertQuestions(items) {
   return inserted;
 }
 
-async function seedQuestionsIfEmpty() {
-  const c = (await pool.query("SELECT COUNT(*)::int c FROM questions")).rows[0].c;
-  if (c > 0) return c;
+async function seedQuestions() {
+  // Re-seed only when the question set changes (tracked via meta.questions_version).
+  const ver = (await pool.query("SELECT value FROM meta WHERE key='questions_version'")).rows[0];
+  const count = (await pool.query("SELECT COUNT(*)::int c FROM questions")).rows[0].c;
+  if (ver && ver.value === QUESTIONS_VERSION && count > 0) return count;
+
   const file = path.join(__dirname, "..", "data", "questions.json");
-  if (!fs.existsSync(file)) return 0;
+  if (!fs.existsSync(file)) return count;
   const rows = JSON.parse(fs.readFileSync(file, "utf8"));
   const items = rows.map((q) => ({
     id: q.id, subject: q.subject, heading: q.heading, concept: q.concept || "",
@@ -139,7 +157,15 @@ async function seedQuestionsIfEmpty() {
     opta: q.options[0], optb: q.options[1], optc: q.options[2], optd: q.options[3],
     answer: q.answer, explanation: q.explanation || "",
   }));
-  return bulkInsertQuestions(items);
+
+  // Replace the whole bank: drop old questions and everything that referenced them.
+  await pool.query("TRUNCATE questions, guest_playlist, bookmarks, attempts RESTART IDENTITY");
+  const n = await bulkInsertQuestions(items);
+  await pool.query(
+    "INSERT INTO meta (key,value) VALUES ('questions_version',$1) ON CONFLICT (key) DO UPDATE SET value=excluded.value",
+    [QUESTIONS_VERSION]);
+  console.log(`  Questions re-seeded: ${n} (version ${QUESTIONS_VERSION})`);
+  return n;
 }
 
 async function ensureAdmin() {
@@ -158,7 +184,7 @@ let readyPromise = null;
 async function init() {
   await pool.query(SCHEMA);
   await ensureAdmin();
-  await seedQuestionsIfEmpty();
+  await seedQuestions();
 }
 function ensureReady() {
   if (!readyPromise) {
