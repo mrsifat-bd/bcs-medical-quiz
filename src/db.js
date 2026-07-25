@@ -115,10 +115,33 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS last_ip TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_device TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS total_seconds INTEGER NOT NULL DEFAULT 0;
+
+-- free-question pool flag (100 shared free questions across subjects)
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS is_free INTEGER NOT NULL DEFAULT 0;
+
+-- model tests (from the PDF) and student results for ranking
+CREATE TABLE IF NOT EXISTS model_tests (
+  test_no INTEGER NOT NULL,
+  q_no INTEGER NOT NULL,
+  stem TEXT NOT NULL,
+  opta TEXT NOT NULL, optb TEXT NOT NULL, optc TEXT NOT NULL, optd TEXT NOT NULL,
+  answer INTEGER NOT NULL,
+  PRIMARY KEY (test_no, q_no)
+);
+CREATE TABLE IF NOT EXISTS model_test_results (
+  id SERIAL PRIMARY KEY,
+  test_no INTEGER NOT NULL,
+  ref TEXT,
+  name TEXT,
+  score INTEGER NOT NULL,
+  total INTEGER NOT NULL,
+  taken_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_mtr ON model_test_results(test_no, score);
 `;
 
 // Bump this whenever data/questions.json changes to force a full re-seed on deploy.
-const QUESTIONS_VERSION = "qverse-bcs-2026-07";
+const QUESTIONS_VERSION = "qverse-bcs-2026-07c";
 
 // ---- seeding ----
 async function bulkInsertQuestions(items) {
@@ -161,11 +184,50 @@ async function seedQuestions() {
   // Replace the whole bank: drop old questions and everything that referenced them.
   await pool.query("TRUNCATE questions, guest_playlist, bookmarks, attempts RESTART IDENTITY");
   const n = await bulkInsertQuestions(items);
+
+  // Mark ~100 free questions, stratified across subjects (shared by everyone).
+  await pool.query("UPDATE questions SET is_free=0");
+  await pool.query(`
+    WITH ranked AS (
+      SELECT id, row_number() OVER (PARTITION BY subject ORDER BY random()) rn
+      FROM questions WHERE active=1
+    ), picks AS (
+      SELECT id FROM ranked WHERE rn <= 8 ORDER BY random() LIMIT 100
+    )
+    UPDATE questions SET is_free=1 WHERE id IN (SELECT id FROM picks)`);
+
+  await seedModelTests();
+
   await pool.query(
     "INSERT INTO meta (key,value) VALUES ('questions_version',$1) ON CONFLICT (key) DO UPDATE SET value=excluded.value",
     [QUESTIONS_VERSION]);
   console.log(`  Questions re-seeded: ${n} (version ${QUESTIONS_VERSION})`);
   return n;
+}
+
+async function seedModelTests() {
+  const file = path.join(__dirname, "..", "data", "modeltests.json");
+  if (!fs.existsSync(file)) return 0;
+  const tests = JSON.parse(fs.readFileSync(file, "utf8"));
+  await pool.query("TRUNCATE model_tests");
+  let total = 0;
+  for (const t of tests) {
+    const vals = [];
+    const params = [];
+    let p = 1;
+    for (const q of t.questions) {
+      vals.push(`($${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++})`);
+      params.push(t.test_no, q.q_no, q.stem, q.options[0], q.options[1], q.options[2], q.options[3], q.answer);
+      total++;
+    }
+    if (vals.length) {
+      await pool.query(
+        `INSERT INTO model_tests (test_no,q_no,stem,opta,optb,optc,optd,answer) VALUES ${vals.join(",")}
+         ON CONFLICT (test_no,q_no) DO NOTHING`, params);
+    }
+  }
+  console.log(`  Model tests seeded: ${total} questions across ${tests.length} tests`);
+  return total;
 }
 
 async function ensureAdmin() {
