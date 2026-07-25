@@ -221,6 +221,19 @@ html.dark .combo-fallback h3{color:#dbe7f2}
 .opt.sel{border-color:var(--teal);background:#eafaf7}
 html.dark .opt.sel{background:#123330}
 html.dark .mt-timer{background:#22303d;color:#dbe7f2}
+.mt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px;margin-top:16px}
+.mt-card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:16px;display:flex;flex-direction:column;gap:9px}
+.mt-card-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.mt-card-top b{color:var(--navy);font-size:16px}
+html.dark .mt-card-top b{color:#dbe7f2}
+.mt-card-sub{color:var(--muted);font-size:13px;flex:1}
+.mt-rank{background:#f5f9fc;border:1px solid var(--line);border-radius:12px;padding:14px 18px;max-width:420px;margin:14px auto 0;text-align:left}
+html.dark .mt-rank{background:#14212c}
+.mt-rank-cat{font-weight:800;color:var(--teal-d);text-align:center;font-size:18px;margin-bottom:8px}
+html.dark .mt-rank-cat{color:#2dd4bf}
+.mt-rank-row{display:flex;justify-content:space-between;gap:10px;padding:4px 0;font-size:14px;color:var(--ink)}
+.mt-rank-row b{color:var(--navy)}
+html.dark .mt-rank-row b{color:#dbe7f2}
 
 /* ---------- night mode ---------- */
 html.dark{
