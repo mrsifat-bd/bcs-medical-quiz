@@ -141,7 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_mtr ON model_test_results(test_no, score);
 `;
 
 // Bump this whenever data/questions.json changes to force a full re-seed on deploy.
-const QUESTIONS_VERSION = "qverse-bcs-2026-07c";
+const QUESTIONS_VERSION = "qverse-bcs-2026-07d";
 
 // ---- seeding ----
 async function bulkInsertQuestions(items) {
