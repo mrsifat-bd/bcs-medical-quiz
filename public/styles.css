@@ -26,6 +26,12 @@ header.top{background:linear-gradient(100deg,var(--navy),var(--navy2));color:#ff
 .logo b{font-size:18px;font-weight:800;letter-spacing:.2px;display:block;line-height:1.1}
 .logo small{font-size:11px;opacity:.8;font-weight:500}
 .top .spacer{flex:1}
+/* global practice progress bar (sticky under header) */
+.gprog{position:sticky;top:62px;z-index:25;height:24px;background:var(--card);border-bottom:1px solid var(--line);display:flex;align-items:center;overflow:hidden}
+.gprog-fill{position:absolute;left:0;top:0;height:100%;background:linear-gradient(90deg,var(--teal),#22c1a5);width:0;transition:width .5s;opacity:.22}
+.gprog-label{position:relative;z-index:1;font-size:12px;font-weight:700;color:var(--muted);padding-left:16px}
+html.dark .gprog{background:#16212e}
+@media(max-width:640px){.gprog{top:56px;height:22px}.gprog-label{font-size:11px;padding-left:12px}}
 .top .uinfo{font-size:13px;opacity:.9}
 .btn{background:var(--teal);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-size:14px;
   cursor:pointer;font-weight:600;transition:.15s;white-space:nowrap}
@@ -88,7 +94,7 @@ header.top{background:linear-gradient(100deg,var(--navy),var(--navy2));color:#ff
 
 /* sidebar (member browser) */
 aside{width:290px;flex-shrink:0}
-.side{position:sticky;top:78px;max-height:calc(100vh - 96px);overflow:auto;background:var(--card);
+.side{position:sticky;top:92px;max-height:calc(100vh - 110px);overflow:auto;background:var(--card);
   border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
 .side h3{margin:0;padding:14px 16px;border-bottom:1px solid var(--line);font-size:14px;color:var(--navy);font-weight:800}
 .subj{border-bottom:1px solid var(--line)}
@@ -212,7 +218,7 @@ html.dark .combo-fallback h3{color:#dbe7f2}
 }
 
 /* ---------- model test ---------- */
-.mt-bar{position:sticky;top:70px;z-index:20;background:var(--card);border:1px solid var(--line);border-radius:12px;
+.mt-bar{position:sticky;top:92px;z-index:20;background:var(--card);border:1px solid var(--line);border-radius:12px;
   box-shadow:var(--shadow);padding:10px 16px;display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap}
 .mt-timer{font-weight:800;font-size:20px;color:var(--navy);background:#eef2f6;border-radius:8px;padding:4px 14px;font-variant-numeric:tabular-nums}
 .mt-timer.warn{color:#fff;background:var(--red);animation:mt-pulse 1s infinite}

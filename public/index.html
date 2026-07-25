@@ -10,7 +10,7 @@
 </head>
 <body>
 <header class="top">
-  <div class="logo"><img class="logo-img" src="/logo.png" alt="MediVerse" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-block'"/><b class="logo-fallback" style="display:none">MediVerse</b><span class="logo-sub"><small>BCS Question Bank</small></span></div>
+  <div class="logo" style="cursor:pointer" onclick="goHome()" title="Home"><img class="logo-img" src="/logo.png" alt="MediVerse" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-block'"/><b class="logo-fallback" style="display:none">MediVerse</b><span class="logo-sub"><small>BCS Question Bank</small></span></div>
   <div class="spacer"></div>
   <button class="btn ghost sm" id="themeToggle" aria-label="Toggle night mode" title="Night mode">🌙</button>
   <button class="btn ghost sm" id="modeltestBtn" onclick="openModelTest()">📝 Model Test</button>
@@ -21,6 +21,9 @@
   <button class="btn ghost sm" id="logoutBtn" style="display:none">Log out</button>
 </header>
 <script>(function(){var b=document.getElementById('themeToggle');if(!b)return;function u(){b.textContent=document.documentElement.classList.contains('dark')?'☀️':'🌙';}u();b.addEventListener('click',function(){document.documentElement.classList.toggle('dark');try{localStorage.setItem('theme',document.documentElement.classList.contains('dark')?'dark':'light');}catch(e){}u();});})();</script>
+
+<!-- global practice progress bar (under header) -->
+<div class="gprog" id="gprog"><div class="gprog-fill" id="gprogFill"></div><span class="gprog-label" id="gprogLabel">Practiced 0 / 50</span></div>
 
 <!-- FREE / REGISTERED feed -->
 <div class="wrap" id="freeView" style="display:none">
@@ -60,6 +63,7 @@
 <!-- MODEL TEST -->
 <div class="container" id="modeltestView" style="display:none">
   <div id="mtHome">
+    <div style="margin-bottom:12px"><button class="btn gray sm" onclick="goHome()">← Home</button></div>
     <div class="qcard" style="text-align:center">
       <div class="icon-big" style="margin:0 auto 8px">📝</div>
       <h2 style="color:var(--navy);margin:2px 0">Model Tests</h2>
@@ -71,6 +75,7 @@
     <div class="mt-bar">
       <div class="mt-timer" id="mtTimer">60:00</div>
       <div id="mtProgress">0 answered</div>
+      <button class="btn gray" onclick="if(confirm('Leave this test? Your progress will be lost.'))goHome()">← Exit</button>
       <button class="btn" onclick="submitModelTest(false)">Submit test</button>
     </div>
     <div id="mtList"></div>
@@ -149,6 +154,21 @@ let free={page:1,tier:"guest",quota:100,total:0,subject:"",heading:""};
 let freeAnswered=0, comboShown=false;
 var SHOW_COMBO=false; // combo-book popup disabled
 try{ if(sessionStorage.getItem('comboShown')==='1') comboShown=true; }catch(e){}
+
+/* ---- global practice progress (questions practiced vs available) ---- */
+let PROG_TOTAL=50;
+let practiced=new Set();
+try{ practiced=new Set(JSON.parse(localStorage.getItem('practiced_ids')||'[]')); }catch(e){}
+function savePracticed(){ try{ localStorage.setItem('practiced_ids', JSON.stringify([...practiced])); }catch(e){} }
+function markPracticed(qid){ if(qid==null)return; if(!practiced.has(qid)){ practiced.add(qid); savePracticed(); } updateProgress(); }
+function updateProgress(){
+  const total=Math.max(1,PROG_TOTAL);
+  const done=Math.min(practiced.size,total);
+  const pct=Math.round(done/total*100);
+  const f=document.getElementById('gprogFill'), l=document.getElementById('gprogLabel');
+  if(f)f.style.width=pct+'%';
+  if(l)l.textContent='Practiced '+done+' / '+total+' ('+pct+'%)';
+}
 let mem={subject:"",heading:"",search:"",difficulty:"",page:1,bookmarked:false};
 
 async function init(){
@@ -161,6 +181,7 @@ async function init(){
   document.getElementById("logoutBtn").onclick=async()=>{await api("/api/logout",{method:"POST"});location.reload();};
   document.getElementById("su_go").onclick=doSignup;
   USER=await me();
+  updateProgress();
   if(USER){ showMember(); } else { showFree(); }
   // time tracking: heartbeat every 20s while the tab is visible
   setInterval(()=>{ if(document.visibilityState==="visible"){ api("/api/heartbeat",{method:"POST",body:JSON.stringify({seconds:20})}).catch(()=>{}); } }, 20000);
@@ -191,6 +212,7 @@ async function openModelTest(){
   }catch(e){ grid.innerHTML=`<div class="qcard empty" style="grid-column:1/-1">${esc(e.message)}</div>`; }
 }
 function exitModelTest(){ if(mt.timer)clearInterval(mt.timer); mt.submitted=true; document.getElementById("modeltestView").style.display="none"; if(USER)showMember(); else showFree(); }
+function goHome(){ exitModelTest(); window.scrollTo({top:0}); }
 async function startModelTest(n){
   try{
     const d=await api("/api/modeltest/"+n);
@@ -304,6 +326,7 @@ async function loadFeed(){
   if(free.heading)url+="&heading="+encodeURIComponent(free.heading);
   const d=await api(url);
   free.tier=d.tier; free.quota=d.quota; free.total=d.total;
+  PROG_TOTAL=d.quota; updateProgress();
   document.getElementById("registerBtn").style.display=(d.tier==="guest")?"inline-block":"none";
   const badge=document.getElementById("tierBadge");
   if(d.tier==="registered"){badge.textContent="Registered · "+d.quota+" free";badge.className="badge";}
@@ -361,6 +384,7 @@ function showMember(){
 }
 async function loadTree(){
   const {total,subjects}=await api("/api/subjects");
+  PROG_TOTAL=total; updateProgress();
   document.getElementById("tree").innerHTML=
     `<div class="subj"><button onclick="pickAll()"><span>All subjects</span><span class="cnt">${total}</span></button></div>`+
     subjects.map((s,i)=>`<div class="subj" id="subj${i}">
@@ -410,6 +434,7 @@ function answer(qid,chosen,correct,member){
   opts.forEach((o,idx)=>{o.classList.add("disabled");o.onclick=null;
     if(idx===correct)o.classList.add("correct"); if(idx===chosen&&chosen!==correct)o.classList.add("wrong");});
   document.getElementById("expl"+qid).classList.add("show");
+  markPracticed(qid);
   if(member)api("/api/attempt",{method:"POST",body:JSON.stringify({question_id:qid,chosen})}).catch(()=>{});
   if(!member && SHOW_COMBO){ freeAnswered++; if(freeAnswered>=2 && !comboShown){ comboShown=true; try{sessionStorage.setItem('comboShown','1');}catch(e){} setTimeout(()=>document.getElementById('comboModal').classList.add('show'),500); } }
 }
