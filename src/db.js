@@ -138,6 +138,18 @@ CREATE TABLE IF NOT EXISTS model_test_results (
   taken_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_mtr ON model_test_results(test_no, score);
+
+-- member login sessions (supports multi-device when the admin allows it)
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL,
+  device_id TEXT,
+  ip TEXT,
+  device TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS multi_device INTEGER NOT NULL DEFAULT 0;
 `;
 
 // Bump this whenever data/questions.json changes to force a full re-seed on deploy.
