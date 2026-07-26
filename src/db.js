@@ -13,8 +13,11 @@ const pool = new Pool({
   connectionString,
   // Supabase (and most hosted Postgres) require SSL. Local Postgres does not.
   ssl: connectionString && !isLocal ? { rejectUnauthorized: false } : false,
-  max: Number(process.env.PG_POOL_MAX || 3),
-  idleTimeoutMillis: 10000,
+  // On serverless each warm instance holds its own pool, so keep it tiny (1 connection)
+  // and release idle connections quickly to stay under Supabase's pooler limit.
+  max: Number(process.env.PG_POOL_MAX || 1),
+  idleTimeoutMillis: 5000,
+  allowExitOnIdle: true,
   connectionTimeoutMillis: 15000,
 });
 
