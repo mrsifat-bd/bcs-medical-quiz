@@ -66,7 +66,9 @@ function setSession(res, token) {
 async function currentUser(req) {
   const t = req.cookies.sid;
   if (!t) return null;
-  return (await db.get("SELECT id,username,name,role,active FROM users WHERE session_token=$1 AND active=1", [t])) || null;
+  return (await db.get(
+    `SELECT u.id,u.username,u.name,u.role,u.active FROM sessions s JOIN users u ON u.id=s.user_id
+     WHERE s.token=$1 AND u.active=1`, [t])) || null;
 }
 async function requireAuth(req, res, next) {
   try {
@@ -309,15 +311,19 @@ app.post("/api/login", async (req, res, next) => {
     const u = await db.get("SELECT * FROM users WHERE username=$1", [String(username).trim()]);
     if (!u || !db.bcrypt.compareSync(password, u.password_hash)) return res.status(401).json({ error: "Invalid username or password." });
     if (!u.active) return res.status(403).json({ error: "This account is disabled. Contact the administrator." });
-    if (u.role !== "admin") {
+    const multiAllowed = u.role === "admin" || u.multi_device;
+    if (u.role !== "admin" && !u.multi_device) {
+      // Single-device members are locked to their first device.
       if (!u.device_id) await db.run("UPDATE users SET device_id=$1 WHERE id=$2", [device_id, u.id]);
-      else if (u.device_id !== device_id) return res.status(403).json({ error: "This account is locked to another device. Contact the administrator to reset it." });
+      else if (u.device_id !== device_id) return res.status(403).json({ error: "This account is locked to another device. Ask the administrator to allow multi-device or reset your device." });
     }
-    // Rotating the session_token invalidates any other browser/session already
-    // logged into this account (only one active login at a time).
+    // Non-multi-device (and admin) accounts keep only one active session.
+    if (!multiAllowed || u.role === "admin") await db.run("DELETE FROM sessions WHERE user_id=$1", [u.id]);
     const token = crypto.randomBytes(24).toString("hex");
-    await db.run("UPDATE users SET session_token=$1, last_ip=$2, last_device=$3, last_login_at=now() WHERE id=$4",
-      [token, clientIp(req), parseDevice(req.headers["user-agent"]), u.id]);
+    await db.run("INSERT INTO sessions (token,user_id,device_id,ip,device) VALUES ($1,$2,$3,$4,$5)",
+      [token, u.id, device_id, clientIp(req), parseDevice(req.headers["user-agent"])]);
+    await db.run("UPDATE users SET last_ip=$1, last_device=$2, last_login_at=now() WHERE id=$3",
+      [clientIp(req), parseDevice(req.headers["user-agent"]), u.id]);
     setSession(res, token);
     res.json({ id: u.id, username: u.username, name: u.name, role: u.role });
   } catch (e) { next(e); }
@@ -325,7 +331,7 @@ app.post("/api/login", async (req, res, next) => {
 app.post("/api/logout", async (req, res, next) => {
   try {
     const t = req.cookies.sid;
-    if (t) await db.run("UPDATE users SET session_token=NULL WHERE session_token=$1", [t]);
+    if (t) await db.run("DELETE FROM sessions WHERE token=$1", [t]);
     res.clearCookie("sid"); res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -383,8 +389,9 @@ app.get("/api/admin/stats", requireAdmin, async (req, res, next) => {
 });
 app.get("/api/admin/users", requireAdmin, async (req, res, next) => {
   try {
-    const users = await db.all(`SELECT id,username,name,active,created_at,last_ip,last_device,last_login_at,total_seconds,
-       (device_id IS NOT NULL) AS bound
+    const users = await db.all(`SELECT id,username,name,active,created_at,last_ip,last_device,last_login_at,total_seconds,multi_device,
+       (device_id IS NOT NULL) AS bound,
+       (SELECT COUNT(*)::int FROM sessions s WHERE s.user_id=users.id) AS active_sessions
        FROM users WHERE role='user' ORDER BY id DESC`);
     res.json({ users });
   } catch (e) { next(e); }
@@ -399,20 +406,38 @@ app.post("/api/admin/users", requireAdmin, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 app.post("/api/admin/users/:id/reset-device", requireAdmin, async (req, res, next) => {
-  try { await db.run("UPDATE users SET device_id=NULL, session_token=NULL WHERE id=$1 AND role='user'", [req.params.id]); res.json({ ok: true }); }
-  catch (e) { next(e); }
+  try {
+    await db.run("UPDATE users SET device_id=NULL WHERE id=$1 AND role='user'", [req.params.id]);
+    await db.run("DELETE FROM sessions WHERE user_id=$1", [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+// Allow / disallow a specific member to log in from multiple devices at once.
+app.post("/api/admin/users/:id/multi-device", requireAdmin, async (req, res, next) => {
+  try {
+    const on = req.body.on ? 1 : 0;
+    await db.run("UPDATE users SET multi_device=$1 WHERE id=$2 AND role='user'", [on, req.params.id]);
+    if (!on) {
+      // Revoke extra devices: clear the device binding and log the member out everywhere.
+      await db.run("UPDATE users SET device_id=NULL WHERE id=$1", [req.params.id]);
+      await db.run("DELETE FROM sessions WHERE user_id=$1", [req.params.id]);
+    }
+    res.json({ ok: true });
+  } catch (e) { next(e); }
 });
 app.post("/api/admin/users/:id/active", requireAdmin, async (req, res, next) => {
   try {
     const a = req.body.active ? 1 : 0;
-    await db.run("UPDATE users SET active=$1, session_token=CASE WHEN $2=0 THEN NULL ELSE session_token END WHERE id=$3 AND role='user'", [a, a, req.params.id]);
+    await db.run("UPDATE users SET active=$1 WHERE id=$2 AND role='user'", [a, req.params.id]);
+    if (!a) await db.run("DELETE FROM sessions WHERE user_id=$1", [req.params.id]);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
 app.post("/api/admin/users/:id/password", requireAdmin, async (req, res, next) => {
   try {
     if (!req.body.password) return res.status(400).json({ error: "password required" });
-    await db.run("UPDATE users SET password_hash=$1, session_token=NULL WHERE id=$2 AND role='user'", [db.bcrypt.hashSync(req.body.password, 10), req.params.id]);
+    await db.run("UPDATE users SET password_hash=$1 WHERE id=$2 AND role='user'", [db.bcrypt.hashSync(req.body.password, 10), req.params.id]);
+    await db.run("DELETE FROM sessions WHERE user_id=$1", [req.params.id]);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
