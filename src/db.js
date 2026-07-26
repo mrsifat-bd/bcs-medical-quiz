@@ -156,7 +156,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS multi_device INTEGER NOT NULL DEFAULT
 `;
 
 // Bump this whenever data/questions.json changes to force a full re-seed on deploy.
-const QUESTIONS_VERSION = "qverse-bcs-2026-07e";
+const QUESTIONS_VERSION = "qverse-bcs-2026-07f";
 
 // ---- seeding ----
 async function bulkInsertQuestions(items) {
