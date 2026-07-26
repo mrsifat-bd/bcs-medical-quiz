@@ -241,6 +241,42 @@ html.dark .mt-rank-cat{color:#2dd4bf}
 .mt-rank-row b{color:var(--navy)}
 html.dark .mt-rank-row b{color:#dbe7f2}
 
+/* ---------- hover & vector accents ---------- */
+header.top{
+  background:
+    linear-gradient(100deg, rgba(15,44,70,.94), rgba(30,77,116,.92)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='170' height='46'%3E%3Cpath d='M0 23 H54 l6 -16 5 30 6 -23 5 9 H170' fill='none' stroke='%23ffffff' stroke-width='2'/%3E%3C/svg%3E");
+  background-repeat:no-repeat, repeat-x;
+  background-position:center, left center;
+  background-size:cover, 170px 46px;
+}
+.qcard,.hero,.mt-card,.stat,.combo,.authcard{transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease}
+.hero:hover,.stat:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg)}
+.mt-card:hover{transform:translateY(-3px);border-color:var(--teal);box-shadow:var(--shadow-lg)}
+.qcard:hover{box-shadow:var(--shadow-lg)}
+.opt{transition:transform .14s ease, border-color .14s, background .14s}
+.opt:hover:not(.disabled){transform:translateX(3px)}
+.subj>button{transition:padding-left .16s ease, background .16s}
+.subj>button:hover{padding-left:22px}
+.headings button{transition:padding-left .16s ease, color .14s, background .14s}
+.headings button:hover{padding-left:34px}
+.tag,.pill,.badge{transition:transform .14s ease}
+.tag:hover,.badge:hover{transform:scale(1.06)}
+.logo .logo-img{transition:transform .2s ease}
+.logo:hover .logo-img{transform:scale(1.05)}
+.btn{position:relative;overflow:hidden}
+.btn::after{content:"";position:absolute;top:0;left:-120%;width:55%;height:100%;pointer-events:none;
+  background:linear-gradient(120deg,transparent,rgba(255,255,255,.35),transparent);transform:skewX(-20deg);transition:left .55s ease}
+.btn:hover::after{left:140%}
+
+/* ---------- footer ---------- */
+.site-footer{background:var(--navy);color:#dbe7f2;margin-top:44px;padding:22px 18px}
+html.dark .site-footer{background:#0c1620}
+.foot-inner{max-width:1100px;margin:0 auto;display:flex;flex-wrap:wrap;gap:8px 26px;align-items:center;justify-content:center;text-align:center;font-size:14px}
+.foot-inner a{color:#5eead4;font-weight:700}
+.foot-inner a:hover{text-decoration:underline}
+.foot-brand{opacity:.65;width:100%;text-align:center;font-size:12px;margin-top:6px}
+
 /* ---------- night mode ---------- */
 html.dark{
   --bg:#0f1720; --card:#16212e; --ink:#e6eef6; --muted:#93a4b6; --line:#28353f;

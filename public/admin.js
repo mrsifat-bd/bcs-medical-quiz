@@ -67,12 +67,14 @@ async function loadUsers(){
     <td>${esc(u.last_device||"—")}</td>
     <td style="white-space:nowrap;color:var(--muted)">${u.last_login_at?String(u.last_login_at).slice(0,16).replace("T"," "):"—"}</td>
     <td style="white-space:nowrap">${fmtDur(u.total_seconds||0)}</td>
+    <td style="white-space:nowrap">${u.multi_device?'<span class="pill green">multi-device</span>':'<span class="pill gray">1 device</span>'}${u.active_sessions?` <span class="pill" style="background:var(--tealbg,#e6f6f3);color:var(--teal-d)">${u.active_sessions} online</span>`:""}</td>
     <td style="white-space:nowrap">
+      <button class="btn gray sm" onclick="toggleMulti(${u.id},${u.multi_device?0:1})">${u.multi_device?"Make single-device":"Allow multi-device"}</button>
       <button class="btn gray sm" onclick="resetDevice(${u.id})">Reset device</button>
       <button class="btn gray sm" onclick="toggleActive(${u.id},${u.active?0:1})">${u.active?"Disable":"Enable"}</button>
       <button class="btn gray sm" onclick="resetPw(${u.id})">Password</button>
       <button class="btn danger sm" onclick="delUser(${u.id},'${enc(u.username)}')">Delete</button></td></tr>`).join("");
-  document.getElementById("userTable").innerHTML=`<tr><th>Username</th><th>Name</th><th>Status</th><th>Device lock</th><th>Last IP</th><th>Device</th><th>Last login</th><th>Time spent</th><th>Actions</th></tr>`+(rows||`<tr><td colspan="9" style="color:var(--muted)">No members yet.</td></tr>`);
+  document.getElementById("userTable").innerHTML=`<tr><th>Username</th><th>Name</th><th>Status</th><th>Device lock</th><th>Last IP</th><th>Device</th><th>Last login</th><th>Time spent</th><th>Devices</th><th>Actions</th></tr>`+(rows||`<tr><td colspan="10" style="color:var(--muted)">No members yet.</td></tr>`);
 }
 function fmtDur(s){s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor((s%3600)/60);if(h)return h+"h "+m+"m";if(m)return m+"m";return s+"s";
 }
@@ -83,6 +85,7 @@ document.getElementById("addUser").addEventListener("click",async()=>{
   }catch(e){m.innerHTML=`<div class="msg err">${esc(e.message)}</div>`;}
 });
 async function resetDevice(id){await api(`/api/admin/users/${id}/reset-device`,{method:"POST"});loadUsers();}
+async function toggleMulti(id,on){await api(`/api/admin/users/${id}/multi-device`,{method:"POST",body:JSON.stringify({on})});loadUsers();}
 async function toggleActive(id,a){await api(`/api/admin/users/${id}/active`,{method:"POST",body:JSON.stringify({active:a})});loadUsers();}
 async function resetPw(id){const p=prompt("New password:");if(!p)return;await api(`/api/admin/users/${id}/password`,{method:"POST",body:JSON.stringify({password:p})});alert("Password updated.");}
 async function delUser(id,u){if(!confirm("Delete member "+decodeURIComponent(u)+"?"))return;await api(`/api/admin/users/${id}`,{method:"DELETE"});loadUsers();loadStats();}
