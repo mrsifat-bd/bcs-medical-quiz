@@ -255,6 +255,25 @@ app.post("/api/signup", async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ---------- custom exam: members build a random deck from the bank ----------
+app.get("/api/customtest", requireAuth, async (req, res, next) => {
+  try {
+    const n = Math.min(100, Math.max(5, parseInt(req.query.n) || 30));
+    const subject = String(req.query.subject || "").trim();
+    const difficulty = String(req.query.difficulty || "").trim();
+    const params = [];
+    let where = "active=1";
+    if (subject) { params.push(subject); where += ` AND subject=$${params.length}`; }
+    if (difficulty) { params.push(difficulty); where += ` AND difficulty=$${params.length}`; }
+    params.push(n);
+    const rows = await db.all(`SELECT * FROM questions WHERE ${where} ORDER BY random() LIMIT $${params.length}`, params);
+    res.json({
+      durationSec: n * 60,
+      questions: rows.map((q) => ({ id: q.id, subject: q.subject, stem: q.stem, options: [q.opta, q.optb, q.optc, q.optd], answer: q.answer, explanation: q.explanation })),
+    });
+  } catch (e) { next(e); }
+});
+
 // ---------- subject/topic tree (public: powers the browse sidebar for everyone) ----------
 app.get("/api/subjects", async (req, res, next) => {
   try {
