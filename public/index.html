@@ -10,7 +10,7 @@
 </head>
 <body>
 <header class="top">
-  <div class="logo" style="cursor:pointer" onclick="goHome()" title="Home"><img class="logo-img" src="/logo.png" alt="MediVerse" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-block'"/><b class="logo-fallback" style="display:none">MediVerse</b><span class="logo-sub"><small>BCS Question Bank</small></span></div>
+  <div class="logo" style="cursor:pointer" onclick="goHome()" title="Home"><img class="logo-img" src="/qverse-logo.png" alt="Q-Verse" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-block'"/><b class="logo-fallback" style="display:none">Q-Verse</b><span class="logo-sub"><small>BCS Question Bank</small></span></div>
   <div class="spacer"></div>
   <button class="btn ghost sm" id="themeToggle" aria-label="Toggle night mode" title="Night mode">🌙</button>
   <button class="btn ghost sm" id="modeltestBtn" onclick="openModelTest()">📝 Model Test</button>
@@ -51,6 +51,7 @@
     <div class="toolbar">
       <div class="crumb" id="crumb">All questions</div>
       <div style="flex:1"></div>
+      <button class="btn gray sm" onclick="openCustomExam()">🎲 Custom exam</button>
       <button class="btn gray sm" id="bookmarksBtn">★ Bookmarks</button>
       <select id="diff"><option value="">All levels</option><option>Easy</option><option>Moderate</option><option>Hard</option></select>
       <input class="search" id="search" placeholder="Search…"/>
@@ -82,6 +83,21 @@
     <div style="text-align:center;margin:8px 0 30px"><button class="btn" onclick="submitModelTest(false)">Submit test</button></div>
   </div>
   <div id="mtResult" style="display:none"></div>
+</div>
+
+<!-- CUSTOM EXAM config modal -->
+<div class="modal-bg" id="customModal">
+  <div class="modal">
+    <div class="icon-big">🎲</div>
+    <h3>Create a custom exam</h3>
+    <p class="lead">Build a random question deck from the full bank and test yourself.</p>
+    <div class="field"><label>Number of questions</label>
+      <select id="ceCount"><option>10</option><option selected>20</option><option>30</option><option>50</option><option>100</option></select></div>
+    <div class="field"><label>Subject</label><select id="ceSubject"><option value="">All subjects</option></select></div>
+    <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="ceTimed" checked style="width:auto"/> Timed (1 minute per question, auto-submit)</label></div>
+    <button class="btn block" onclick="startCustomExam()">Start exam →</button>
+    <p style="text-align:center;margin:12px 0 0;font-size:13px"><a href="#" onclick="document.getElementById('customModal').classList.remove('show');return false">Cancel</a></p>
+  </div>
 </div>
 
 <!-- SIGN-UP modal -->
@@ -148,10 +164,11 @@
 </div>
 
 <footer class="site-footer">
+  <a href="https://mediversebd.com" target="_blank" rel="noopener" class="foot-logo" title="Visit mediversebd.com"><img src="/logo.png" alt="MediVerse"/></a>
   <div class="foot-inner">
     <span>📚 To buy our BCS book — <a href="https://forms.gle/CjbfUUDXrQfidK8t9" target="_blank" rel="noopener">Order form</a></span>
     <span>📞 or contact <a href="tel:+8801647077873">+880 1647-077873</a></span>
-    <span class="foot-brand">MediVerse · Q-Verse BCS Question Bank</span>
+    <span class="foot-brand">Powered by <a href="https://mediversebd.com" target="_blank" rel="noopener">MediVerse</a> · mediversebd.com</span>
   </div>
 </footer>
 
@@ -196,7 +213,7 @@ async function init(){
 }
 
 /* ---------------- MODEL TESTS ---------------- */
-let mt={no:0,questions:[],answers:{},endTime:0,timer:null,submitted:false};
+let mt={no:0,questions:[],answers:{},endTime:0,timer:null,submitted:false,custom:false,timed:true,label:""};
 async function openModelTest(){
   document.getElementById("freeView").style.display="none";
   document.getElementById("memberView").style.display="none";
@@ -224,16 +241,47 @@ function goHome(){ exitModelTest(); window.scrollTo({top:0}); }
 async function startModelTest(n){
   try{
     const d=await api("/api/modeltest/"+n);
-    mt.no=n; mt.questions=d.questions; mt.answers={}; mt.submitted=false;
+    mt.no=n; mt.custom=false; mt.timed=true; mt.label="Model Test "+n;
+    mt.questions=d.questions; mt.answers={}; mt.submitted=false;
     mt.endTime=Date.now()+(d.durationSec*1000);
-    renderMtList();
-    document.getElementById("mtHome").style.display="none";
-    document.getElementById("mtResult").style.display="none";
-    document.getElementById("mtRun").style.display="block";
-    if(mt.timer)clearInterval(mt.timer);
-    mt.timer=setInterval(tickMt,1000); tickMt();
-    window.scrollTo({top:0});
+    runMt();
   }catch(e){ alert(e.message); }
+}
+/* ---- custom random exam (members) ---- */
+async function openCustomExam(){
+  const sel=document.getElementById("ceSubject");
+  sel.innerHTML='<option value="">All subjects</option>';
+  try{ const d=await api("/api/subjects"); (d.subjects||[]).forEach(s=>{const o=document.createElement("option");o.value=s.subject;o.textContent=s.subject+" ("+s.count+")";sel.appendChild(o);}); }catch(e){}
+  document.getElementById("customModal").classList.add("show");
+}
+async function startCustomExam(){
+  const n=parseInt(document.getElementById("ceCount").value)||30;
+  const subject=document.getElementById("ceSubject").value;
+  const timed=document.getElementById("ceTimed").checked;
+  document.getElementById("customModal").classList.remove("show");
+  try{
+    let url="/api/customtest?n="+n; if(subject)url+="&subject="+encodeURIComponent(subject);
+    const d=await api(url);
+    if(!d.questions||!d.questions.length){ alert("No questions found for that selection."); return; }
+    mt.no=0; mt.custom=true; mt.timed=timed; mt.label="Custom exam"+(subject?" · "+subject:"");
+    mt.questions=d.questions; mt.answers={}; mt.submitted=false;
+    mt.endTime=Date.now()+(d.durationSec*1000);
+    document.getElementById("freeView").style.display="none";
+    document.getElementById("memberView").style.display="none";
+    document.getElementById("modeltestView").style.display="block";
+    runMt();
+  }catch(e){ alert(e.message); }
+}
+function runMt(){
+  renderMtList();
+  document.getElementById("mtHome").style.display="none";
+  document.getElementById("mtResult").style.display="none";
+  document.getElementById("mtRun").style.display="block";
+  const tel=document.getElementById("mtTimer");
+  if(mt.timer)clearInterval(mt.timer);
+  if(mt.timed){ tel.style.display=""; mt.timer=setInterval(tickMt,1000); tickMt(); }
+  else { tel.style.display="none"; }
+  window.scrollTo({top:0});
 }
 function tickMt(){
   const left=Math.max(0,Math.round((mt.endTime-Date.now())/1000));
@@ -269,10 +317,10 @@ async function submitModelTest(auto){
   document.getElementById("mtRun").style.display="none";
   const res=document.getElementById("mtResult");
   res.style.display="block";
-  res.innerHTML=`<div class="qcard empty">Submitting & calculating your rank…</div>`;
+  res.innerHTML=`<div class="qcard empty">${mt.custom?"Grading your exam…":"Submitting & calculating your rank…"}</div>`;
   window.scrollTo({top:0,behavior:"smooth"});
   let rk=null;
-  try{ rk=await api("/api/modeltest/"+mt.no+"/result",{method:"POST",body:JSON.stringify({score:correct,total})}); }catch(e){}
+  if(!mt.custom){ try{ rk=await api("/api/modeltest/"+mt.no+"/result",{method:"POST",body:JSON.stringify({score:correct,total})}); }catch(e){} }
   const review=mt.questions.map((q,qi)=>{
     const chosen=mt.answers[qi], ok=chosen===q.answer;
     const tag=chosen===undefined?'<span class="tag">Not answered</span>':(ok?'<span class="pill green">Correct</span>':'<span class="pill" style="background:var(--redbg);color:var(--red)">Wrong</span>');
@@ -291,15 +339,18 @@ async function submitModelTest(auto){
       <div class="mt-rank-row"><span>📈 Class average</span><b>${rk.avgScore} / ${total}</b></div>
     </div>`;
   }
+  const actions = mt.custom
+    ? `<button class="btn" onclick="openCustomExam()">🎲 New custom exam</button>
+       <button class="btn gray" onclick="exitModelTest()">Back to practice</button>`
+    : `<button class="btn" onclick="startModelTest(${mt.no})">Retake</button>
+       <button class="btn gray" onclick="openModelTest()">All model tests</button>
+       <button class="btn gray" onclick="exitModelTest()">Back to practice</button>`;
   res.innerHTML=`<div class="qcard" style="text-align:center">
     <div class="icon-big" style="margin:0 auto 8px;background:${pct>=50?'var(--greenbg)':'var(--amberbg)'};color:${pct>=50?'var(--green)':'var(--amber)'}">${pct>=50?'🎉':'📘'}</div>
-    <h2 style="color:var(--navy);margin:2px 0">${auto?"⏰ Time's up! ":""}Model Test ${mt.no} — Score: ${correct} / ${total} (${pct}%)</h2>
+    <h2 style="color:var(--navy);margin:2px 0">${auto?"⏰ Time's up! ":""}${esc(mt.label||("Model Test "+mt.no))} — Score: ${correct} / ${total} (${pct}%)</h2>
     <p style="color:var(--muted)">${correct} correct · ${total-correct} wrong or unanswered · ${answered}/${total} attempted</p>
     ${rankHtml}
-    <div style="margin-top:14px">
-      <button class="btn" onclick="startModelTest(${mt.no})">Retake</button>
-      <button class="btn gray" onclick="openModelTest()">All model tests</button>
-      <button class="btn gray" onclick="exitModelTest()">Back to practice</button></div></div>
+    <div style="margin-top:14px">${actions}</div></div>
     <h3 style="color:var(--navy);margin:20px 4px 8px">Answer review</h3>${review}`;
   window.scrollTo({top:0,behavior:"smooth"});
 }

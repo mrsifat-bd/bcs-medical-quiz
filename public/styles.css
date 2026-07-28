@@ -271,6 +271,9 @@ header.top{
 
 /* ---------- footer ---------- */
 .site-footer{background:var(--navy);color:#dbe7f2;margin-top:44px;padding:22px 18px}
+.foot-logo{display:block;width:max-content;margin:0 auto 12px}
+.foot-logo img{height:42px;background:#fff;border-radius:10px;padding:6px 14px;box-shadow:0 3px 12px rgba(0,0,0,.25);transition:transform .2s ease}
+.foot-logo:hover img{transform:scale(1.04)}
 html.dark .site-footer{background:#0c1620}
 .foot-inner{max-width:1100px;margin:0 auto;display:flex;flex-wrap:wrap;gap:8px 26px;align-items:center;justify-content:center;text-align:center;font-size:14px}
 .foot-inner a{color:#5eead4;font-weight:700}
