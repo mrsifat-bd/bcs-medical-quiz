@@ -25,6 +25,21 @@ app.use(cookieParser());
 // On serverless the only writable directory is the OS temp dir.
 const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 15 * 1024 * 1024 } });
 
+// ---------- lightweight endpoints (registered BEFORE the DB-init gate) ----------
+// These are hit on every page load, so we keep them as fast as possible.
+// /api/config needs no database at all; /api/me only touches the DB when the
+// visitor actually has a login cookie (guests get an instant, DB-free response).
+app.get("/api/config", (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.json({ brand: BRAND, freeQuota: FREE_QUOTA, regQuota: REG_QUOTA, paymentUrl: PAYMENT_URL });
+});
+app.get("/api/me", async (req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (!req.cookies.sid) return res.json({ user: null });   // guest: zero DB work
+  try { await db.ensureReady(); res.json({ user: await currentUser(req) }); }
+  catch (e) { next(e); }
+});
+
 // Make sure the database schema exists (and is seeded) before any route runs.
 app.use(async (req, res, next) => {
   try { await db.ensureReady(); next(); }
@@ -127,14 +142,6 @@ async function getGuest(req, res) {
   return g;
 }
 function quotaFor(tier) { return tier === "registered" ? REG_QUOTA : FREE_QUOTA; }
-
-// ---------- public config ----------
-app.get("/api/config", (req, res) => {
-  res.json({ brand: BRAND, freeQuota: FREE_QUOTA, regQuota: REG_QUOTA, paymentUrl: PAYMENT_URL });
-});
-app.get("/api/me", async (req, res, next) => {
-  try { res.json({ user: await currentUser(req) }); } catch (e) { next(e); }
-});
 
 // ---------- time tracking (heartbeat every ~20s from the browser) ----------
 app.post("/api/heartbeat", async (req, res) => {
@@ -277,14 +284,30 @@ app.get("/api/customtest", requireAuth, async (req, res, next) => {
 // ---------- subject/topic tree (public: powers the browse sidebar for everyone) ----------
 app.get("/api/subjects", async (req, res, next) => {
   try {
-    const subs = await db.all("SELECT subject, COUNT(*)::int c FROM questions WHERE active=1 GROUP BY subject ORDER BY MIN(id)");
-    const tree = [];
-    for (const s of subs) {
-      const headings = await db.all("SELECT heading, COUNT(*)::int c FROM questions WHERE active=1 AND subject=$1 GROUP BY heading ORDER BY MIN(id)", [s.subject]);
-      tree.push({ subject: s.subject, count: s.c, headings });
+    // Single grouped query (was an N+1 loop of one query per subject).
+    // Aggregate subject + heading counts in one pass, then build the tree in JS.
+    const rows = await db.all(
+      `SELECT subject, heading, COUNT(*)::int c, MIN(id)::int mid
+         FROM questions WHERE active=1
+        GROUP BY subject, heading`);
+    const bySubject = new Map();
+    for (const r of rows) {
+      let s = bySubject.get(r.subject);
+      if (!s) { s = { subject: r.subject, count: 0, mid: r.mid, headings: [] }; bySubject.set(r.subject, s); }
+      s.count += r.c;
+      if (r.mid < s.mid) s.mid = r.mid;
+      s.headings.push({ heading: r.heading, c: r.c, mid: r.mid });
     }
-    const totalRow = await db.get("SELECT COUNT(*)::int c FROM questions WHERE active=1");
-    res.json({ total: totalRow.c, subjects: tree });
+    const subjects = [...bySubject.values()]
+      .sort((a, b) => a.mid - b.mid)
+      .map((s) => ({
+        subject: s.subject, count: s.count,
+        headings: s.headings.sort((a, b) => a.mid - b.mid).map((h) => ({ heading: h.heading, c: h.c })),
+      }));
+    const total = subjects.reduce((n, s) => n + s.count, 0);
+    // The subject tree changes rarely; let browsers/CDN cache it briefly.
+    res.setHeader("Cache-Control", "public, max-age=120");
+    res.json({ total, subjects });
   } catch (e) { next(e); }
 });
 app.get("/api/questions", requireAuth, async (req, res, next) => {
@@ -299,19 +322,20 @@ app.get("/api/questions", requireAuth, async (req, res, next) => {
     if (heading) { params.push(heading); where.push(`heading=$${params.length}`); }
     if (difficulty) { params.push(difficulty); where.push(`difficulty=$${params.length}`); }
     if (search) { params.push("%" + search + "%"); const i = params.length; where.push(`(stem ILIKE $${i} OR explanation ILIKE $${i} OR concept ILIKE $${i})`); }
+    // Load this member's bookmark ids once and reuse (was queried twice before).
+    const bmset = new Set((await db.all("SELECT question_id FROM bookmarks WHERE user_id=$1", [user.id])).map((r) => r.question_id));
     let idClause = "";
     if (req.query.bookmarked === "1") {
-      const ids = (await db.all("SELECT question_id FROM bookmarks WHERE user_id=$1", [user.id]))
-        .map((r) => parseInt(r.question_id, 10)).filter(Number.isFinite);
+      const ids = [...bmset].map((v) => parseInt(v, 10)).filter(Number.isFinite);
       if (!ids.length) return res.json({ total: 0, page, pageSize, questions: [] });
       idClause = " AND id IN (" + ids.join(",") + ")";
     }
     const w = where.join(" AND ") + idClause;
-    const totalRow = await db.get(`SELECT COUNT(*)::int c FROM questions WHERE ${w}`, params);
+    const cols = "id,subject,heading,difficulty,style,stem,opta,optb,optc,optd,answer,explanation";
     const limIdx = params.length + 1, offIdx = params.length + 2;
-    const rows = await db.all(`SELECT * FROM questions WHERE ${w} ORDER BY id LIMIT $${limIdx} OFFSET $${offIdx}`,
+    const rows = await db.all(`SELECT ${cols} FROM questions WHERE ${w} ORDER BY id LIMIT $${limIdx} OFFSET $${offIdx}`,
       [...params, pageSize, (page - 1) * pageSize]);
-    const bmset = new Set((await db.all("SELECT question_id FROM bookmarks WHERE user_id=$1", [user.id])).map((r) => r.question_id));
+    const totalRow = await db.get(`SELECT COUNT(*)::int c FROM questions WHERE ${w}`, params);
     res.json({
       total: totalRow.c, page, pageSize, questions: rows.map((q) => ({
         id: q.id, subject: q.subject, heading: q.heading, difficulty: q.difficulty, style: q.style,
@@ -408,11 +432,20 @@ app.get("/api/admin/stats", requireAdmin, async (req, res, next) => {
 });
 app.get("/api/admin/users", requireAdmin, async (req, res, next) => {
   try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const pageSize = Math.min(100, Math.max(5, parseInt(req.query.pageSize) || 20));
+    const search = String(req.query.search || "").trim();
+    const params = [];
+    let where = "role='user'";
+    if (search) { params.push("%" + search + "%"); where += ` AND (username ILIKE $${params.length} OR name ILIKE $${params.length})`; }
+    const total = (await db.get(`SELECT COUNT(*)::int c FROM users WHERE ${where}`, params)).c;
+    const limIdx = params.length + 1, offIdx = params.length + 2;
     const users = await db.all(`SELECT id,username,name,active,created_at,last_ip,last_device,last_login_at,total_seconds,multi_device,
        (device_id IS NOT NULL) AS bound,
        (SELECT COUNT(*)::int FROM sessions s WHERE s.user_id=users.id) AS active_sessions
-       FROM users WHERE role='user' ORDER BY id DESC`);
-    res.json({ users });
+       FROM users WHERE ${where} ORDER BY id DESC LIMIT $${limIdx} OFFSET $${offIdx}`,
+      [...params, pageSize, (page - 1) * pageSize]);
+    res.json({ users, total, page, pageSize });
   } catch (e) { next(e); }
 });
 app.post("/api/admin/users", requireAdmin, async (req, res, next) => {
@@ -476,10 +509,19 @@ app.post("/api/admin/change-password", requireAdmin, async (req, res, next) => {
 // leads (sign-ups)
 app.get("/api/admin/leads", requireAdmin, async (req, res, next) => {
   try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const pageSize = Math.min(100, Math.max(5, parseInt(req.query.pageSize) || 20));
+    const search = String(req.query.search || "").trim();
+    const params = [];
+    let where = "tier='registered'";
+    if (search) { params.push("%" + search + "%"); const i = params.length; where += ` AND (name ILIKE $${i} OR email ILIKE $${i} OR whatsapp ILIKE $${i} OR medical ILIKE $${i})`; }
+    const total = (await db.get(`SELECT COUNT(*)::int c FROM guests WHERE ${where}`, params)).c;
+    const limIdx = params.length + 1, offIdx = params.length + 2;
     const leads = await db.all(`SELECT gid,name,medical,session,email,whatsapp,bought_book,signup_at,converted_user_id,
        (SELECT username FROM users u WHERE u.id=guests.converted_user_id) AS username
-       FROM guests WHERE tier='registered' ORDER BY signup_at DESC LIMIT 1000`);
-    res.json({ leads });
+       FROM guests WHERE ${where} ORDER BY signup_at DESC LIMIT $${limIdx} OFFSET $${offIdx}`,
+      [...params, pageSize, (page - 1) * pageSize]);
+    res.json({ leads, total, page, pageSize });
   } catch (e) { next(e); }
 });
 app.post("/api/admin/leads/:gid/convert", requireAdmin, async (req, res, next) => {
@@ -522,9 +564,13 @@ app.get("/api/admin/leads.xlsx", requireAdmin, async (req, res, next) => {
 // flags admin
 app.get("/api/admin/flags", requireAdmin, async (req, res, next) => {
   try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const pageSize = Math.min(100, Math.max(5, parseInt(req.query.pageSize) || 20));
+    const total = (await db.get("SELECT COUNT(*)::int c FROM flags")).c;
     const flags = await db.all(`SELECT f.id,f.question_id,f.reason,f.resolved,f.created_at,q.subject,q.heading,q.stem
-       FROM flags f JOIN questions q ON q.id=f.question_id ORDER BY f.resolved, f.id DESC LIMIT 500`);
-    res.json({ flags });
+       FROM flags f JOIN questions q ON q.id=f.question_id ORDER BY f.resolved, f.id DESC LIMIT $1 OFFSET $2`,
+      [pageSize, (page - 1) * pageSize]);
+    res.json({ flags, total, page, pageSize });
   } catch (e) { next(e); }
 });
 app.post("/api/admin/flags/:id/resolve", requireAdmin, async (req, res, next) => {
