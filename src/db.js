@@ -153,6 +153,14 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS multi_device INTEGER NOT NULL DEFAULT 0;
+
+-- performance indexes (speed up the hot read paths)
+CREATE INDEX IF NOT EXISTS idx_sessions_token_user ON sessions(token) INCLUDE (user_id);
+CREATE INDEX IF NOT EXISTS idx_q_free ON questions(id) WHERE active=1 AND is_free=1;
+CREATE INDEX IF NOT EXISTS idx_q_active_subject ON questions(active, subject, heading, id);
+CREATE INDEX IF NOT EXISTS idx_guests_tier ON guests(tier, signup_at DESC);
+CREATE INDEX IF NOT EXISTS idx_flags_resolved ON flags(resolved, id DESC);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_user ON bookmarks(user_id, question_id);
 `;
 
 // Bump this whenever data/questions.json changes to force a full re-seed on deploy.
