@@ -26,6 +26,25 @@ document.querySelectorAll(".tabs button").forEach(b=>b.addEventListener("click",
 }));
 function enc(s){return encodeURIComponent(s);}
 
+/* ---- shared server-side pagination state + helpers ---- */
+const PG={leads:{page:1,pageSize:20,search:""},users:{page:1,pageSize:20,search:""},flags:{page:1,pageSize:20}};
+function pager(key,total,loader){
+  const st=PG[key];const pages=Math.ceil(total/st.pageSize)||1;
+  if(st.page>pages){st.page=pages;}
+  const from=total?((st.page-1)*st.pageSize+1):0;
+  const to=Math.min(total,st.page*st.pageSize);
+  return `<div class="pgbar" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;flex-wrap:wrap">
+    <span style="color:var(--muted);font-size:13px">${total?`${from}–${to} of ${total}`:"No records"}</span>
+    <span style="display:flex;gap:6px;align-items:center">
+      <button class="btn gray sm" ${st.page<=1?'disabled':''} onclick="${loader}(${st.page-1})">‹ Prev</button>
+      <span class="pinfo" style="font-size:13px">Page ${st.page} / ${pages}</span>
+      <button class="btn gray sm" ${st.page>=pages?'disabled':''} onclick="${loader}(${st.page+1})">Next ›</button>
+    </span></div>`;
+}
+const debounceMap={};
+function debouncedSearch(key,val,loader){st_set(key,val);clearTimeout(debounceMap[key]);debounceMap[key]=setTimeout(()=>{PG[key].page=1;loader(1);},300);}
+function st_set(key,val){PG[key].search=val;}
+
 async function loadStats(){
   const s=await api("/api/admin/stats");
   document.getElementById("stats").innerHTML=
@@ -36,8 +55,10 @@ async function loadStats(){
 }
 
 /* leads */
-async function loadLeads(){
-  const {leads}=await api("/api/admin/leads");
+async function loadLeads(page){
+  if(page)PG.leads.page=page;
+  const st=PG.leads;
+  const {leads,total}=await api(`/api/admin/leads?page=${st.page}&pageSize=${st.pageSize}&search=${enc(st.search)}`);
   const rows=leads.map(l=>`<tr>
     <td><b>${esc(l.name||"")}</b></td><td>${esc(l.medical||"")}</td><td>${esc(l.session||"")}</td>
     <td>${esc(l.email||"")}</td><td>${esc(l.whatsapp||"")}</td>
@@ -45,7 +66,10 @@ async function loadLeads(){
     <td style="white-space:nowrap;color:var(--muted)">${(l.signup_at||"").slice(0,10)}</td>
     <td>${l.converted_user_id?`<span class="pill green">member: ${esc(l.username||"")}</span>`:`<button class="btn sm" onclick="convertLead('${l.gid}','${enc(l.name||"")}')">Create login</button>`}</td>
   </tr>`).join("");
-  document.getElementById("leadTable").innerHTML=`<tr><th>Name</th><th>Medical college</th><th>Session</th><th>Gmail</th><th>WhatsApp</th><th>Book?</th><th>Date</th><th>Action</th></tr>`+(rows||`<tr><td colspan="8" style="color:var(--muted)">No sign-ups yet.</td></tr>`);
+  const focus=document.activeElement&&document.activeElement.id==="leadSearch";
+  const search=`<div style="margin-bottom:10px"><input id="leadSearch" placeholder="Search name, email, WhatsApp…" value="${esc(st.search)}" oninput="debouncedSearch('leads',this.value,loadLeads)" style="max-width:320px"/></div>`;
+  document.getElementById("leadWrap").innerHTML=`${search}<table><tr><th>Name</th><th>Medical college</th><th>Session</th><th>Gmail</th><th>WhatsApp</th><th>Book?</th><th>Date</th><th>Action</th></tr>${rows||`<tr><td colspan="8" style="color:var(--muted)">No sign-ups${st.search?" match your search":" yet"}.</td></tr>`}</table>${pager("leads",total,"loadLeads")}`;
+  if(focus){const el=document.getElementById("leadSearch");el.focus();el.setSelectionRange(el.value.length,el.value.length);}
 }
 async function convertLead(gid,name){
   const uname=prompt("Choose a username for "+decodeURIComponent(name)+":"); if(!uname)return;
@@ -57,8 +81,10 @@ async function convertLead(gid,name){
 }
 
 /* members */
-async function loadUsers(){
-  const {users}=await api("/api/admin/users");
+async function loadUsers(page){
+  if(page)PG.users.page=page;
+  const st=PG.users;
+  const {users,total}=await api(`/api/admin/users?page=${st.page}&pageSize=${st.pageSize}&search=${enc(st.search)}`);
   const rows=users.map(u=>`<tr>
     <td><b>${esc(u.username)}</b></td><td>${esc(u.name||"")}</td>
     <td>${u.active?'<span class="pill green">active</span>':'<span class="pill gray">disabled</span>'}</td>
@@ -74,7 +100,10 @@ async function loadUsers(){
       <button class="btn gray sm" onclick="toggleActive(${u.id},${u.active?0:1})">${u.active?"Disable":"Enable"}</button>
       <button class="btn gray sm" onclick="resetPw(${u.id})">Password</button>
       <button class="btn danger sm" onclick="delUser(${u.id},'${enc(u.username)}')">Delete</button></td></tr>`).join("");
-  document.getElementById("userTable").innerHTML=`<tr><th>Username</th><th>Name</th><th>Status</th><th>Device lock</th><th>Last IP</th><th>Device</th><th>Last login</th><th>Time spent</th><th>Devices</th><th>Actions</th></tr>`+(rows||`<tr><td colspan="10" style="color:var(--muted)">No members yet.</td></tr>`);
+  const focus=document.activeElement&&document.activeElement.id==="userSearch";
+  const search=`<div style="margin-bottom:10px"><input id="userSearch" placeholder="Search username or name…" value="${esc(st.search)}" oninput="debouncedSearch('users',this.value,loadUsers)" style="max-width:320px"/></div>`;
+  document.getElementById("userWrap").innerHTML=`${search}<table><tr><th>Username</th><th>Name</th><th>Status</th><th>Device lock</th><th>Last IP</th><th>Device</th><th>Last login</th><th>Time spent</th><th>Devices</th><th>Actions</th></tr>${rows||`<tr><td colspan="10" style="color:var(--muted)">No members${st.search?" match your search":" yet"}.</td></tr>`}</table>${pager("users",total,"loadUsers")}`;
+  if(focus){const el=document.getElementById("userSearch");el.focus();el.setSelectionRange(el.value.length,el.value.length);}
 }
 function fmtDur(s){s=Math.max(0,Math.round(s));const h=Math.floor(s/3600),m=Math.floor((s%3600)/60);if(h)return h+"h "+m+"m";if(m)return m+"m";return s+"s";
 }
@@ -91,14 +120,16 @@ async function resetPw(id){const p=prompt("New password:");if(!p)return;await ap
 async function delUser(id,u){if(!confirm("Delete member "+decodeURIComponent(u)+"?"))return;await api(`/api/admin/users/${id}`,{method:"DELETE"});loadUsers();loadStats();}
 
 /* flags */
-async function loadFlags(){
-  const {flags}=await api("/api/admin/flags");
+async function loadFlags(page){
+  if(page)PG.flags.page=page;
+  const st=PG.flags;
+  const {flags,total}=await api(`/api/admin/flags?page=${st.page}&pageSize=${st.pageSize}`);
   const rows=flags.map(f=>`<tr style="${f.resolved?'opacity:.5':''}">
     <td style="max-width:440px"><div style="font-size:12px;color:var(--muted)">Q${f.question_id} · ${esc(f.subject)} › ${esc(f.heading)}</div>
       <div>${md(f.stem)}</div>${f.reason?`<div style="font-size:13px;color:var(--red);margin-top:4px">"${esc(f.reason)}"</div>`:""}</td>
     <td style="white-space:nowrap;color:var(--muted)">${(f.created_at||"").slice(0,10)}</td>
     <td>${f.resolved?'<span class="pill gray">resolved</span>':`<button class="btn gray sm" onclick="resolveFlag(${f.id})">Resolve</button> <button class="btn danger sm" onclick="delQ(${f.question_id})">Hide Q</button>`}</td></tr>`).join("");
-  document.getElementById("flagTable").innerHTML=`<tr><th>Question / report</th><th>Date</th><th>Action</th></tr>`+(rows||`<tr><td colspan="3" style="color:var(--muted)">No reports.</td></tr>`);
+  document.getElementById("flagWrap").innerHTML=`<table><tr><th>Question / report</th><th>Date</th><th>Action</th></tr>${rows||`<tr><td colspan="3" style="color:var(--muted)">No reports.</td></tr>`}</table>${pager("flags",total,"loadFlags")}`;
 }
 async function resolveFlag(id){await api(`/api/admin/flags/${id}/resolve`,{method:"POST"});loadFlags();loadStats();}
 async function delQ(id){if(!confirm("Hide question Q"+id+"?"))return;await api(`/api/admin/questions/${id}/delete`,{method:"POST"});loadFlags();loadStats();}

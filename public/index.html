@@ -363,16 +363,27 @@ function showFree(){
   loadFreeTree();
   loadFeed();
 }
-async function loadFreeTree(){
+// Cached subjects fetch: render instantly from the last-known tree (localStorage)
+// so the sidebar appears with zero network wait, then refresh in the background
+// and only re-render if the data actually changed.
+async function fetchSubjects(render){
+  let cachedStr=null;
+  try{cachedStr=localStorage.getItem("bcs_subjects");}catch(e){}
+  if(cachedStr){ try{render(JSON.parse(cachedStr));}catch(e){} }
   try{
-    const {total,subjects}=await api("/api/subjects");
-    document.getElementById("freeTree").innerHTML=
-      `<div class="subj"><button onclick="freePick('','')"><span>All subjects</span><span class="cnt">${total}</span></button></div>`+
-      subjects.map((s,i)=>`<div class="subj" id="fsubj${i}">
-        <button onclick="freeToggle(${i},'${enc(s.subject)}')"><span>${esc(s.subject)}</span><span class="cnt">${s.count}</span></button>
-        <div class="headings">${s.headings.map(h=>`<button onclick="freePickHeading('${enc(s.subject)}','${enc(h.heading)}',event)"><span>${esc(h.heading)}</span><span class="cnt">${h.c}</span></button>`).join("")}</div></div>`).join("");
-  }catch(e){}
+    const fresh=await api("/api/subjects");
+    const freshStr=JSON.stringify(fresh);
+    if(freshStr!==cachedStr){ try{localStorage.setItem("bcs_subjects",freshStr);}catch(e){} render(fresh); }
+  }catch(e){ /* keep whatever we rendered from cache */ }
 }
+function renderFreeTree(d){
+  document.getElementById("freeTree").innerHTML=
+    `<div class="subj"><button onclick="freePick('','')"><span>All subjects</span><span class="cnt">${d.total}</span></button></div>`+
+    d.subjects.map((s,i)=>`<div class="subj" id="fsubj${i}">
+      <button onclick="freeToggle(${i},'${enc(s.subject)}')"><span>${esc(s.subject)}</span><span class="cnt">${s.count}</span></button>
+      <div class="headings">${s.headings.map(h=>`<button onclick="freePickHeading('${enc(s.subject)}','${enc(h.heading)}',event)"><span>${esc(h.heading)}</span><span class="cnt">${h.c}</span></button>`).join("")}</div></div>`).join("");
+}
+function loadFreeTree(){ return fetchSubjects(renderFreeTree); }
 function freeToggle(i,s){const n=document.getElementById("fsubj"+i);n.classList.toggle("open");free.subject=decodeURIComponent(s);free.heading="";free.page=1;setFreeCrumb();loadFeed();closeFreeAsideMobile();}
 function freePick(s,h){free.subject=s;free.heading=h;free.page=1;document.querySelectorAll("#freeTree .headings button.active").forEach(b=>b.classList.remove("active"));setFreeCrumb();loadFeed();closeFreeAsideMobile();}
 function freePickHeading(s,h,e){e.stopPropagation();free.subject=decodeURIComponent(s);free.heading=decodeURIComponent(h);free.page=1;document.querySelectorAll("#freeTree .headings button.active").forEach(b=>b.classList.remove("active"));e.currentTarget.classList.add("active");setFreeCrumb();loadFeed();closeFreeAsideMobile();}
@@ -441,15 +452,15 @@ function showMember(){
   document.getElementById("bookmarksBtn").addEventListener("click",()=>{mem.bookmarked=!mem.bookmarked;mem.subject="";mem.heading="";mem.page=1;clearActive();setCrumb();loadMember();});
   loadTree(); loadMember();
 }
-async function loadTree(){
-  const {total,subjects}=await api("/api/subjects");
-  PROG_TOTAL=total; updateProgress();
+function renderTree(d){
+  PROG_TOTAL=d.total; updateProgress();
   document.getElementById("tree").innerHTML=
-    `<div class="subj"><button onclick="pickAll()"><span>All subjects</span><span class="cnt">${total}</span></button></div>`+
-    subjects.map((s,i)=>`<div class="subj" id="subj${i}">
+    `<div class="subj"><button onclick="pickAll()"><span>All subjects</span><span class="cnt">${d.total}</span></button></div>`+
+    d.subjects.map((s,i)=>`<div class="subj" id="subj${i}">
       <button onclick="toggleSubj(${i},'${enc(s.subject)}')"><span>${esc(s.subject)}</span><span class="cnt">${s.count}</span></button>
       <div class="headings">${s.headings.map(h=>`<button onclick="pickHeading('${enc(s.subject)}','${enc(h.heading)}',event)"><span>${esc(h.heading)}</span><span class="cnt">${h.c}</span></button>`).join("")}</div></div>`).join("");
 }
+function loadTree(){ return fetchSubjects(renderTree); }
 function enc(s){return encodeURIComponent(s);}
 function toggleSubj(i,s){const n=document.getElementById("subj"+i);n.classList.toggle("open");mem.subject=decodeURIComponent(s);mem.heading="";mem.bookmarked=false;mem.page=1;setCrumb();loadMember();}
 function pickAll(){mem.subject="";mem.heading="";mem.bookmarked=false;mem.page=1;clearActive();setCrumb();loadMember();}
@@ -500,7 +511,10 @@ function answer(qid,chosen,correct,member){
 function closeCombo(){document.getElementById('comboModal').classList.remove('show');}
 async function toggleBm(qid,btn){
   const on=!btn.classList.contains("on");
-  try{await api("/api/bookmarks",{method:"POST",body:JSON.stringify({question_id:qid,on})});btn.classList.toggle("on",on);btn.textContent=on?'★':'☆';}catch(e){alert(e.message);}
+  // Optimistic: flip the star immediately, then reconcile with the server.
+  btn.classList.toggle("on",on);btn.textContent=on?'★':'☆';
+  try{await api("/api/bookmarks",{method:"POST",body:JSON.stringify({question_id:qid,on})});}
+  catch(e){btn.classList.toggle("on",!on);btn.textContent=!on?'★':'☆';alert(e.message);}
 }
 function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
 

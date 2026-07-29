@@ -33,7 +33,7 @@
     <div class="panel" style="padding:6px 16px 16px">
       <p style="color:var(--muted);font-size:14px">People who registered (Name / Medical college / Session / WhatsApp) after their free questions. After they pay, click <b>Create login</b> to give them a single-device member account, then send the credentials via WhatsApp.</p>
       <p><a class="btn gray sm" href="/api/admin/leads.xlsx">⬇ Download sign-ups (Excel)</a></p>
-      <table id="leadTable"></table>
+      <div id="leadWrap"></div>
     </div>
   </div>
 
@@ -45,11 +45,11 @@
         <input id="np" placeholder="Password" type="text"/><button class="btn" id="addUser">Add member</button>
       </div><div id="umsg"></div>
     </div>
-    <div class="panel" style="padding:6px 16px 16px"><table id="userTable"></table></div>
+    <div class="panel" style="padding:6px 16px 16px"><div id="userWrap"></div></div>
   </div>
 
   <div id="tab-flags" class="tabc" style="display:none">
-    <div class="panel" style="padding:6px 16px 16px"><table id="flagTable"></table></div>
+    <div class="panel" style="padding:6px 16px 16px"><div id="flagWrap"></div></div>
   </div>
 
   <div id="tab-upload" class="tabc" style="display:none">
