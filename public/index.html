@@ -410,7 +410,7 @@ function renderFreeTree(d){
     `<div class="subj"><button onclick="freePick('','')"><span>All subjects</span><span class="cnt">${d.total}</span></button></div>`+
     d.subjects.map((s,i)=>`<div class="subj" id="fsubj${i}">
       <button onclick="freeToggle(${i},'${enc(s.subject)}')"><span>${esc(s.subject)}</span><span class="cnt">${s.count}</span></button>
-      <div class="headings">${s.headings.map(h=>`<button onclick="freePickHeading('${enc(s.subject)}','${enc(h.heading)}',event)"><span>${esc(h.heading)}</span><span class="cnt">${h.c}</span></button>`).join("")}</div></div>`).join("");
+      <div class="headings">${s.headings.filter(h=>h.heading!==s.subject).map(h=>`<button onclick="freePickHeading('${enc(s.subject)}','${enc(h.heading)}',event)"><span>${esc(h.heading)}</span><span class="cnt">${h.c}</span></button>`).join("")}</div></div>`).join("");
 }
 function loadFreeTree(){ return fetchSubjects(renderFreeTree); }
 function freeToggle(i,s){const n=document.getElementById("fsubj"+i);n.classList.toggle("open");free.subject=decodeURIComponent(s);free.heading="";free.page=1;setFreeCrumb();loadFeed();closeFreeAsideMobile();}
@@ -420,6 +420,7 @@ function setFreeCrumb(){const c=document.getElementById("freeCrumb");if(free.sub
 function toggleFreeAside(){document.getElementById("freeAside").classList.toggle("open");}
 function closeFreeAsideMobile(){if(window.matchMedia("(max-width:820px)").matches)document.getElementById("freeAside").classList.remove("open");}
 async function loadFeed(resumed){
+  const fl=document.getElementById("freeList"); if(fl)fl.innerHTML=qSkeleton(5);
   let url="/api/feed?page="+free.page;
   if(free.subject)url+="&subject="+encodeURIComponent(free.subject);
   if(free.heading)url+="&heading="+encodeURIComponent(free.heading);
@@ -497,7 +498,7 @@ function renderTree(d){
     `<div class="subj"><button onclick="pickAll()"><span>All subjects</span><span class="cnt">${d.total}</span></button></div>`+
     d.subjects.map((s,i)=>`<div class="subj" id="subj${i}">
       <button onclick="toggleSubj(${i},'${enc(s.subject)}')"><span>${esc(s.subject)}</span><span class="cnt">${s.count}</span></button>
-      <div class="headings">${s.headings.map(h=>`<button onclick="pickHeading('${enc(s.subject)}','${enc(h.heading)}',event)"><span>${esc(h.heading)}</span><span class="cnt">${h.c}</span></button>`).join("")}</div></div>`).join("");
+      <div class="headings">${s.headings.filter(h=>h.heading!==s.subject).map(h=>`<button onclick="pickHeading('${enc(s.subject)}','${enc(h.heading)}',event)"><span>${esc(h.heading)}</span><span class="cnt">${h.c}</span></button>`).join("")}</div></div>`).join("");
 }
 function loadTree(){ return fetchSubjects(renderTree); }
 function enc(s){return encodeURIComponent(s);}
@@ -507,6 +508,7 @@ function pickHeading(s,h,e){e.stopPropagation();mem.subject=decodeURIComponent(s
 function clearActive(){document.querySelectorAll(".headings button.active").forEach(b=>b.classList.remove("active"));}
 function setCrumb(){document.getElementById("crumb").innerHTML=mem.bookmarked?"★ My bookmarks":(mem.subject?esc(mem.subject)+(mem.heading?` <small>› ${esc(mem.heading)}</small>`:""):"All questions");}
 async function loadMember(resumed){
+  const ml=document.getElementById("memberList"); if(ml)ml.innerHTML=qSkeleton(5);
   const p=new URLSearchParams({page:mem.page,pageSize:10});
   if(mem.subject)p.set("subject",mem.subject); if(mem.heading)p.set("heading",mem.heading);
   if(mem.search)p.set("search",mem.search); if(mem.difficulty)p.set("difficulty",mem.difficulty);
@@ -527,6 +529,7 @@ async function loadMember(resumed){
 function memGoto(p){mem.page=p;loadMember();}
 
 /* ---------------- shared question card ---------------- */
+function qSkeleton(n){var c=`<div class="qcard skel"><div class="sk sk-tag"></div><div class="sk sk-line lg"></div><div class="sk sk-line med"></div><div class="sk sk-opt"></div><div class="sk sk-opt"></div><div class="sk sk-opt"></div><div class="sk sk-opt"></div></div>`;return c.repeat(n||4);}
 function qCard(q,no,member){
   const labs=["A","B","C","D"];
   const bm = member?`<button class="iconbtn bm ${q.bookmarked?'on':''}" title="Bookmark" onclick="toggleBm(${q.id},this)">${q.bookmarked?'★':'☆'}</button>`:"";
