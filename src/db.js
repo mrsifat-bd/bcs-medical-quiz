@@ -165,6 +165,13 @@ CREATE INDEX IF NOT EXISTS idx_bookmarks_user ON bookmarks(user_id, question_id)
 
 // Bump this whenever data/questions.json changes to force a full re-seed on deploy.
 const QUESTIONS_VERSION = "qverse-bcs-2026-07f";
+// Bump when the SCHEMA string changes. Lets cold starts skip the ~40 idempotent
+// DDL statements (they only need to run once) — a big serverless latency win.
+const SCHEMA_VERSION = "qverse-schema-2026-08a";
+// One-off, data-safe migrations (run once, tracked in meta). v1: strip the
+// leftover PDF symbol glyph (U+F07D) + trailing chapter name from explanations.
+const MIGRATIONS_VERSION = "v1";
+const EXPL_GLYPH = String.fromCharCode(0xf07d);
 
 // ---- seeding ----
 async function bulkInsertQuestions(items) {
@@ -264,12 +271,48 @@ async function ensureAdmin() {
   console.log(`  Default admin created -> username: ${username}  password: ${password}`);
 }
 
+// Data-safe migrations that must NOT drop user data (bookmarks, attempts, etc.).
+// Runs once, guarded by meta.migrations_version.
+async function runMigrations() {
+  // Strip the leftover PDF symbol glyph and the chapter name that follows it,
+  // editing explanations in place (ids, bookmarks and attempts are untouched).
+  const r = await pool.query(
+    "UPDATE questions SET explanation = rtrim(split_part(explanation, chr(61565), 1)) " +
+    "WHERE explanation LIKE '%' || chr(61565) || '%'");
+  console.log(`  Migration ${MIGRATIONS_VERSION}: cleaned ${r.rowCount} explanation(s)`);
+}
+
 // ---- one-time initialisation (memoised for serverless cold starts) ----
 let readyPromise = null;
 async function init() {
-  await pool.query(SCHEMA);
-  await ensureAdmin();
-  await seedQuestions();
+  // Single cheap lookup: if everything is already current, skip all the
+  // idempotent DDL/seed work and return after just this one query.
+  const meta = {};
+  try {
+    const r = await pool.query(
+      "SELECT key,value FROM meta WHERE key IN ('schema_version','questions_version','migrations_version')");
+    for (const row of r.rows) meta[row.key] = row.value;
+  } catch (e) { /* meta table not created yet (fresh DB) */ }
+
+  const schemaOk = meta.schema_version === SCHEMA_VERSION;
+  const questionsOk = meta.questions_version === QUESTIONS_VERSION;
+  const migrationsOk = meta.migrations_version === MIGRATIONS_VERSION;
+  if (schemaOk && questionsOk && migrationsOk) return;   // hot path: 1 query
+
+  if (!schemaOk) {
+    await pool.query(SCHEMA);
+    await pool.query(
+      "INSERT INTO meta (key,value) VALUES ('schema_version',$1) ON CONFLICT (key) DO UPDATE SET value=excluded.value",
+      [SCHEMA_VERSION]);
+    await ensureAdmin();
+  }
+  if (!questionsOk) await seedQuestions();
+  if (!migrationsOk) {
+    await runMigrations();
+    await pool.query(
+      "INSERT INTO meta (key,value) VALUES ('migrations_version',$1) ON CONFLICT (key) DO UPDATE SET value=excluded.value",
+      [MIGRATIONS_VERSION]);
+  }
 }
 function ensureReady() {
   if (!readyPromise) {
