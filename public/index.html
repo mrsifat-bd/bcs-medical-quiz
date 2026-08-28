@@ -186,6 +186,12 @@ let practiced=new Set();
 try{ practiced=new Set(JSON.parse(localStorage.getItem('practiced_ids')||'[]')); }catch(e){}
 function savePracticed(){ try{ localStorage.setItem('practiced_ids', JSON.stringify([...practiced])); }catch(e){} }
 function markPracticed(qid){ if(qid==null)return; if(!practiced.has(qid)){ practiced.add(qid); savePracticed(); } updateProgress(); }
+
+/* persisted answers: remember chosen option per question for true resume */
+let ANSWERS={};
+try{ ANSWERS=JSON.parse(localStorage.getItem('bcs_answers')||'{}')||{}; }catch(e){}
+function saveAnswers(){ try{ localStorage.setItem('bcs_answers', JSON.stringify(ANSWERS)); }catch(e){} }
+function isAnswered(qid){ return Object.prototype.hasOwnProperty.call(ANSWERS, qid); }
 function updateProgress(){
   const total=Math.max(1,PROG_TOTAL);
   const done=Math.min(practiced.size,total);
@@ -428,6 +434,7 @@ async function loadFeed(resumed){
   // If a resumed page is out of range (e.g. filter changed), clamp and reload once.
   const pagesChk=Math.ceil(d.total/d.pageSize)||1;
   if(free.page>pagesChk && d.total>0){ free.page=pagesChk; return loadFeed(resumed); }
+  if(resumed && d.total===0 && (free.subject||free.heading)){ free.subject=""; free.heading=""; free.page=1; setFreeCrumb(); return loadFeed(resumed); }
   free.tier=d.tier; free.quota=d.quota; free.total=d.total;
   PROG_TOTAL=d.quota; updateProgress();
   document.getElementById("registerBtn").style.display=(d.tier==="guest")?"inline-block":"none";
@@ -457,8 +464,8 @@ async function loadFeed(resumed){
     <span class="pinfo">Page ${d.page} of ${pages}</span>
     <button class="btn gray sm" ${d.page>=pages?'disabled':''} onclick="freeGoto(${d.page+1})">Next ›</button>`;
   free.page=d.page; saveResumeFree();
-  window.scrollTo({top:0,behavior:"smooth"});
-  if(resumed) showResumeToast(d.page);
+  if(resumed){ showResumeToast(d.page); scrollToFirstUnsolved("freeList"); }
+  else window.scrollTo({top:0,behavior:"smooth"});
 }
 function wallCard(type){
   if(type==="signup") return `<div class="qcard" style="text-align:center;border:2px dashed var(--teal)">
@@ -523,8 +530,8 @@ async function loadMember(resumed){
     <span class="pinfo">Page ${d.page} of ${pages} · ${d.total} questions</span>
     <button class="btn gray sm" ${d.page>=pages?'disabled':''} onclick="memGoto(${d.page+1})">Next ›</button>`;
   mem.page=d.page; saveResumeMember();
-  window.scrollTo({top:0,behavior:"smooth"});
-  if(resumed) showResumeToast(d.page);
+  if(resumed){ showResumeToast(d.page); scrollToFirstUnsolved("memberList"); }
+  else window.scrollTo({top:0,behavior:"smooth"});
 }
 function memGoto(p){mem.page=p;loadMember();}
 
@@ -533,26 +540,46 @@ function qSkeleton(n){var c=`<div class="qcard skel"><div class="sk sk-tag"></di
 function qCard(q,no,member){
   const labs=["A","B","C","D"];
   const bm = member?`<button class="iconbtn bm ${q.bookmarked?'on':''}" title="Bookmark" onclick="toggleBm(${q.id},this)">${q.bookmarked?'★':'☆'}</button>`:"";
-  return `<div class="qcard" id="q${q.id}">
+  // If already solved (this session or a previous visit), render it revealed.
+  const done = isAnswered(q.id);
+  const chosen = done ? ANSWERS[q.id] : null;
+  const doneTag = done ? `<span class="tag done">✓ Answered</span>` : "";
+  const opts = q.options.map((o,idx)=>{
+    let cls="opt", click=` onclick="answer(${q.id},${idx},${q.answer},${member})"`;
+    if(done){ click=""; cls+=" disabled"; if(idx===q.answer)cls+=" correct"; if(idx===chosen&&chosen!==q.answer)cls+=" wrong"; }
+    return `<div class="${cls}"${click}><span class="lab">${labs[idx]}</span><span>${md(o)}</span></div>`;
+  }).join("");
+  return `<div class="qcard${done?' answered':''}" id="q${q.id}" data-qid="${q.id}">
     <div class="qhead"><div class="qnum">Q${no}.</div>
-      <div class="qtags"><span class="tag subject">${esc(q.subject)}</span>${bm}
+      <div class="qtags"><span class="tag subject">${esc(q.subject)}</span>${doneTag}${bm}
         <button class="iconbtn" title="Report" onclick="openFlag(${q.id})">⚑</button></div></div>
     <div class="stem">${md(q.stem)}</div>
-    <div class="opts" id="opts${q.id}">
-      ${q.options.map((o,idx)=>`<div class="opt" onclick="answer(${q.id},${idx},${q.answer},${member})"><span class="lab">${labs[idx]}</span><span>${md(o)}</span></div>`).join("")}
-    </div>
-    <div class="expl" id="expl${q.id}"><div class="ans">Answer: ${labs[q.answer]}</div><div><strong>Explanation:</strong> ${md(q.explanation)}</div></div>
+    <div class="opts" id="opts${q.id}">${opts}</div>
+    <div class="expl${done?' show':''}" id="expl${q.id}"><div class="ans">Answer: ${labs[q.answer]}</div><div><strong>Explanation:</strong> ${md(q.explanation)}</div></div>
   </div>`;
 }
 function answer(qid,chosen,correct,member){
   const opts=document.querySelectorAll("#opts"+qid+" .opt");
-  if(opts[0].classList.contains("disabled"))return;
+  if(!opts.length || opts[0].classList.contains("disabled"))return;
   opts.forEach((o,idx)=>{o.classList.add("disabled");o.onclick=null;
     if(idx===correct)o.classList.add("correct"); if(idx===chosen&&chosen!==correct)o.classList.add("wrong");});
   document.getElementById("expl"+qid).classList.add("show");
+  // Persist the answer so it stays revealed when the user comes back.
+  ANSWERS[qid]=chosen; saveAnswers();
+  const card=document.getElementById("q"+qid);
+  if(card){ card.classList.add("answered"); const tags=card.querySelector(".qtags");
+    if(tags && !tags.querySelector(".tag.done")){ const s=document.createElement("span"); s.className="tag done"; s.textContent="✓ Answered"; tags.insertBefore(s, tags.children[1]||null); } }
   markPracticed(qid);
   if(member)api("/api/attempt",{method:"POST",body:JSON.stringify({question_id:qid,chosen})}).catch(()=>{});
   if(!member && SHOW_COMBO){ freeAnswered++; if(freeAnswered>=2 && !comboShown){ comboShown=true; try{sessionStorage.setItem('comboShown','1');}catch(e){} setTimeout(()=>document.getElementById('comboModal').classList.add('show'),500); } }
+}
+/* On resume, glide to the first still-unsolved question on the page. */
+function scrollToFirstUnsolved(containerId){
+  const cards=[...document.querySelectorAll("#"+containerId+" .qcard[data-qid]")];
+  if(!cards.length) return;
+  let target=cards.find(c=>!isAnswered(c.getAttribute("data-qid")));
+  if(!target) target=cards[cards.length-1];   // all solved: land on the last one
+  setTimeout(()=>{ target.scrollIntoView({behavior:"smooth",block:"start"}); }, 60);
 }
 function closeCombo(){document.getElementById('comboModal').classList.remove('show');}
 async function toggleBm(qid,btn){
