@@ -425,16 +425,37 @@ function freePickHeading(s,h,e){e.stopPropagation();free.subject=decodeURICompon
 function setFreeCrumb(){const c=document.getElementById("freeCrumb");if(free.subject){c.style.display="block";c.innerHTML=esc(free.subject)+(free.heading?` <small>› ${esc(free.heading)}</small>`:"")+` <button class="btn gray sm" style="margin-left:8px" onclick="freePick('','')">✕ Clear</button>`;}else{c.style.display="none";c.innerHTML="";}}
 function toggleFreeAside(){document.getElementById("freeAside").classList.toggle("open");}
 function closeFreeAsideMobile(){if(window.matchMedia("(max-width:820px)").matches)document.getElementById("freeAside").classList.remove("open");}
-async function loadFeed(resumed){
-  const fl=document.getElementById("freeList"); if(fl)fl.innerHTML=qSkeleton(5);
-  let url="/api/feed?page="+free.page;
+/* numbered, clickable pager (1 2 3 … N) shared by both feeds */
+function pagerHTML(page,pages,fn){
+  const b=(p,l,cur)=>`<button class="pg-num${cur?' cur':''}"${cur?' aria-current="page"':''} onclick="${fn}(${p})">${l}</button>`;
+  let out=`<button class="pg-num pg-arrow" ${page<=1?'disabled':''} onclick="${fn}(${page-1})">‹</button>`;
+  const win=2; let s=Math.max(1,page-win), e=Math.min(pages,page+win);
+  if(s>1){ out+=b(1,"1",false); if(s>2)out+=`<span class="pg-dots">…</span>`; }
+  for(let p=s;p<=e;p++) out+=b(p,String(p),p===page);
+  if(e<pages){ if(e<pages-1)out+=`<span class="pg-dots">…</span>`; out+=b(pages,String(pages),false); }
+  out+=`<button class="pg-num pg-arrow" ${page>=pages?'disabled':''} onclick="${fn}(${page+1})">›</button>`;
+  return out;
+}
+/* in-memory page cache so revisiting / paging is instant (cleared on filter or bookmark change) */
+let freeCache=new Map();
+function freeKey(pg){ return [free.subject,free.heading,pg].join("|"); }
+async function fetchFeedPage(pg){
+  const key=freeKey(pg);
+  if(freeCache.has(key)) return freeCache.get(key);
+  let url="/api/feed?page="+pg;
   if(free.subject)url+="&subject="+encodeURIComponent(free.subject);
   if(free.heading)url+="&heading="+encodeURIComponent(free.heading);
-  const d=await api(url);
-  // If a resumed page is out of range (e.g. filter changed), clamp and reload once.
+  const d=await api(url); freeCache.set(key,d); return d;
+}
+async function loadFeed(resumed){
+  const fl=document.getElementById("freeList");
+  if(fl && !freeCache.has(freeKey(free.page))) fl.innerHTML=qSkeleton(5);
+  const d=await fetchFeedPage(free.page);
   const pagesChk=Math.ceil(d.total/d.pageSize)||1;
   if(free.page>pagesChk && d.total>0){ free.page=pagesChk; return loadFeed(resumed); }
-  if(resumed && d.total===0 && (free.subject||free.heading)){ free.subject=""; free.heading=""; free.page=1; setFreeCrumb(); return loadFeed(resumed); }
+  // A resumed subject filter with no free questions would strand the user on an
+  // empty page — fall back to the full feed so they always land on questions.
+  if(resumed && d.total===0 && (free.subject||free.heading)){ free.subject=""; free.heading=""; free.page=1; setFreeCrumb(); freeCache.clear(); return loadFeed(resumed); }
   free.tier=d.tier; free.quota=d.quota; free.total=d.total;
   PROG_TOTAL=d.quota; updateProgress();
   document.getElementById("registerBtn").style.display=(d.tier==="guest")?"inline-block":"none";
@@ -458,14 +479,11 @@ async function loadFeed(resumed){
     ? `<div class="qcard empty">No free questions in this topic yet. ${d.tier==="guest"?'Register free or ':''}<a href="#" onclick="openPay();return false">unlock the full bank</a> to study every topic.</div>`
     : `<div class="qcard empty">No questions available.</div>`;
   document.getElementById("freeList").innerHTML=html||emptyMsg;
-  // pager
-  const pg=document.getElementById("freePager");
-  pg.innerHTML=`<button class="btn gray sm" ${d.page<=1?'disabled':''} onclick="freeGoto(${d.page-1})">‹ Prev</button>
-    <span class="pinfo">Page ${d.page} of ${pages}</span>
-    <button class="btn gray sm" ${d.page>=pages?'disabled':''} onclick="freeGoto(${d.page+1})">Next ›</button>`;
+  document.getElementById("freePager").innerHTML=pagerHTML(d.page,pages,"freeGoto");
   free.page=d.page; saveResumeFree();
   if(resumed){ showResumeToast(d.page); scrollToFirstUnsolved("freeList"); }
   else window.scrollTo({top:0,behavior:"smooth"});
+  if(free.page<pages) fetchFeedPage(free.page+1).catch(()=>{});   // prefetch next page
 }
 function wallCard(type){
   if(type==="signup") return `<div class="qcard" style="text-align:center;border:2px dashed var(--teal)">
@@ -514,26 +532,34 @@ function pickAll(){mem.subject="";mem.heading="";mem.bookmarked=false;mem.page=1
 function pickHeading(s,h,e){e.stopPropagation();mem.subject=decodeURIComponent(s);mem.heading=decodeURIComponent(h);mem.bookmarked=false;mem.page=1;clearActive();e.currentTarget.classList.add("active");setCrumb();loadMember();}
 function clearActive(){document.querySelectorAll(".headings button.active").forEach(b=>b.classList.remove("active"));}
 function setCrumb(){document.getElementById("crumb").innerHTML=mem.bookmarked?"★ My bookmarks":(mem.subject?esc(mem.subject)+(mem.heading?` <small>› ${esc(mem.heading)}</small>`:""):"All questions");}
-async function loadMember(resumed){
-  const ml=document.getElementById("memberList"); if(ml)ml.innerHTML=qSkeleton(5);
-  const p=new URLSearchParams({page:mem.page,pageSize:10});
+let memCache=new Map();
+function memKey(pg){ return [mem.subject,mem.heading,mem.search,mem.difficulty,mem.bookmarked?1:0,pg].join("|"); }
+async function fetchMemberPage(pg){
+  const key=memKey(pg);
+  if(memCache.has(key)) return memCache.get(key);
+  const p=new URLSearchParams({page:pg,pageSize:10});
   if(mem.subject)p.set("subject",mem.subject); if(mem.heading)p.set("heading",mem.heading);
   if(mem.search)p.set("search",mem.search); if(mem.difficulty)p.set("difficulty",mem.difficulty);
   if(mem.bookmarked)p.set("bookmarked","1");
-  const d=await api("/api/questions?"+p.toString());
+  const d=await api("/api/questions?"+p.toString()); memCache.set(key,d); return d;
+}
+async function loadMember(resumed){
+  const ml=document.getElementById("memberList");
+  if(ml && !memCache.has(memKey(mem.page))) ml.innerHTML=qSkeleton(5);
+  const d=await fetchMemberPage(mem.page);
   const pages=Math.ceil(d.total/d.pageSize)||1;
   // If a resumed page is now out of range (bank changed), clamp and reload once.
   if(mem.page>pages && d.total>0){ mem.page=pages; return loadMember(resumed); }
   const startNo=(d.page-1)*d.pageSize;
   document.getElementById("memberList").innerHTML=d.questions.length?d.questions.map((q,i)=>qCard(q,startNo+i+1,true)).join(""):`<div class="qcard empty">No questions found.</div>`;
-  document.getElementById("memberPager").innerHTML=`<button class="btn gray sm" ${d.page<=1?'disabled':''} onclick="memGoto(${d.page-1})">‹ Prev</button>
-    <span class="pinfo">Page ${d.page} of ${pages} · ${d.total} questions</span>
-    <button class="btn gray sm" ${d.page>=pages?'disabled':''} onclick="memGoto(${d.page+1})">Next ›</button>`;
+  document.getElementById("memberPager").innerHTML=pagerHTML(d.page,pages,"memGoto")+`<div class="pg-total">${d.total} questions</div>`;
   mem.page=d.page; saveResumeMember();
   if(resumed){ showResumeToast(d.page); scrollToFirstUnsolved("memberList"); }
   else window.scrollTo({top:0,behavior:"smooth"});
+  if(mem.page<pages) fetchMemberPage(mem.page+1).catch(()=>{});   // prefetch next page
 }
 function memGoto(p){mem.page=p;loadMember();}
+
 
 /* ---------------- shared question card ---------------- */
 function qSkeleton(n){var c=`<div class="qcard skel"><div class="sk sk-tag"></div><div class="sk sk-line lg"></div><div class="sk sk-line med"></div><div class="sk sk-opt"></div><div class="sk sk-opt"></div><div class="sk sk-opt"></div><div class="sk sk-opt"></div></div>`;return c.repeat(n||4);}
@@ -586,7 +612,7 @@ async function toggleBm(qid,btn){
   const on=!btn.classList.contains("on");
   // Optimistic: flip the star immediately, then reconcile with the server.
   btn.classList.toggle("on",on);btn.textContent=on?'★':'☆';
-  try{await api("/api/bookmarks",{method:"POST",body:JSON.stringify({question_id:qid,on})});}
+  try{await api("/api/bookmarks",{method:"POST",body:JSON.stringify({question_id:qid,on})}); memCache.clear();}
   catch(e){btn.classList.toggle("on",!on);btn.textContent=!on?'★':'☆';alert(e.message);}
 }
 function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
@@ -601,6 +627,7 @@ async function doSignup(){
   try{
     await api("/api/signup",{method:"POST",body:JSON.stringify(body)});
     document.getElementById("signupModal").classList.remove("show");
+    freeCache.clear();
     free.page=Math.floor(free.quota/10)+1; // jump to the newly unlocked questions
     await loadFeed();
     alert("Thanks! 100 more questions unlocked.");
