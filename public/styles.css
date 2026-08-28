@@ -324,6 +324,19 @@ html.dark .opt,html.dark .qcard,html.dark .hero,html.dark .side,html.dark .panel
 @keyframes skshimmer{0%{background-position:100% 0}100%{background-position:-100% 0}}
 html.dark .sk{background:linear-gradient(90deg,#1b2735 25%,#22303d 37%,#1b2735 63%);background-size:400% 100%}
 
+/* numbered pager (1 2 3 ... N) */
+.pager{flex-wrap:wrap}
+.pg-num{min-width:38px;height:38px;padding:0 10px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;transition:.14s;display:inline-flex;align-items:center;justify-content:center}
+.pg-num:hover:not(:disabled):not(.cur){background:#f2fbf9;border-color:var(--teal);color:var(--teal-d)}
+.pg-num.cur{background:var(--teal);border-color:var(--teal);color:#fff;cursor:default}
+.pg-num:disabled{opacity:.4;cursor:not-allowed}
+.pg-arrow{font-size:18px;font-weight:800}
+.pg-dots{padding:0 4px;color:var(--muted);align-self:center}
+.pg-total{width:100%;text-align:center;color:var(--muted);font-size:13px;margin-top:8px}
+html.dark .pg-num{background:#16212e;border-color:var(--line);color:var(--ink)}
+html.dark .pg-num:hover:not(:disabled):not(.cur){background:#1b2735;border-color:var(--teal);color:#5eead4}
+html.dark .pg-num.cur{background:var(--teal);border-color:var(--teal);color:#fff}
+
 /* already-answered questions (restored on return) */
 .tag.done{background:var(--greenbg);color:var(--green);font-weight:700}
 html.dark .tag.done{background:#12301f;color:#4ade80}
